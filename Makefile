@@ -16,13 +16,19 @@ lint:
 test:
 	npm test
 
-# Flags known vulnerabilities without failing the build. Several are
-# currently unfixable transitive issues bundled inside node-red's own npm
-# client (jsonata/tar/undici) and require an upstream node-red release.
+# Fails when npm audit finds vulnerabilities. Intentionally not part of the
+# push/merge gate (see ci below): several findings are currently unfixable
+# transitive issues bundled inside node-red's own npm client (jsonata/tar/
+# undici) and require an upstream node-red release. Run standalone or via
+# .github/workflows/audit.yml to get a real, visible red signal without
+# blocking pushes or merges on something we can't fix ourselves.
 audit:
-	@npm audit || true
+	npm audit
 
-ci: format lint test audit
+# audit is intentionally best-effort here (leading '-'): format/lint/test
+# must pass to push or merge, but a failing audit must not block either.
+ci: format lint test
+	-$(MAKE) audit
 
 clean:
 	rm -rf node_modules
