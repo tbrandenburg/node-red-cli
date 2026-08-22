@@ -10,7 +10,7 @@
 should be usable from a CLI or a Node.js host just like ordinary functions.
 
 ```bash
-echo '{"payload":{"x":4,"y":5}}' | node-red-cli flows.json calculate
+node-red-cli flows.json calculate --set x=4 --set y=5 < /dev/null
 ```
 
 ```
