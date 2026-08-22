@@ -17,6 +17,10 @@ function parseArgs(argv) {
       options.help = true;
       continue;
     }
+    if (arg === "--version" || arg === "-v") {
+      options.version = true;
+      continue;
+    }
     const flowMatch = arg.match(/^--flow=(.*)$/);
     if (flowMatch) {
       options.flow = flowMatch[1];
@@ -47,6 +51,8 @@ function printUsage() {
     [
       "Usage: node-red-cli <flows.json> [target] [--flow=<tab>] [--timeout=<ms>]",
       "                    [--set <key>=<value>]... [--format=json|plain]",
+      "",
+      "--version, -v prints the installed node-red-cli version and exits.",
       "",
       "Reads a JSON message from stdin and invokes the given link-in target",
       "in the specified Node-RED flow file. The message returned by the",
@@ -108,8 +114,18 @@ function readStdin() {
   });
 }
 
+function printVersion() {
+  const { version } = require("../package.json");
+  console.log(version);
+}
+
 async function main() {
   const { positionals, options } = parseArgs(process.argv.slice(2));
+
+  if (options.version) {
+    printVersion();
+    return;
+  }
 
   if (options.help || positionals.length < 1) {
     printUsage();

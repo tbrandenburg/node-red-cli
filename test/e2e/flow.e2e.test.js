@@ -150,6 +150,22 @@ test("e2e: --format=json prints the full result object as JSON", async () => {
   assert.equal(JSON.parse(stdout).payload, 9);
 });
 
+test("e2e: --version prints the package version and exits without requiring a flow file", async () => {
+  const { version } = require("../../package.json");
+  const { code, stdout, stderr } = await runCli(["--version"], "");
+
+  assert.equal(code, 0, stderr);
+  assert.equal(stdout.trim(), version);
+});
+
+test("e2e: -v prints the package version and exits without requiring a flow file", async () => {
+  const { version } = require("../../package.json");
+  const { code, stdout, stderr } = await runCli(["-v"], "");
+
+  assert.equal(code, 0, stderr);
+  assert.equal(stdout.trim(), version);
+});
+
 test("e2e: an invalid --format value fails with a clear error and no stdout output", async () => {
   const { code, stdout, stderr } = await runCli(
     [flowsPath, "calculate", "--format=xml"],

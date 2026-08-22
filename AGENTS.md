@@ -28,3 +28,4 @@ test/fixtures/       Example Node-RED flow used as a test asset
 - `make test` — run the test suite (node --test)
 - `make ci` — format + lint + test (same as CI and the pre-push hook)
 - `make clean` — remove node_modules
+- `make release bump=patch|minor|major` — bump the version, tag, push, and create a GitHub release
