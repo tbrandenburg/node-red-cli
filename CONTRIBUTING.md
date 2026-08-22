@@ -13,7 +13,7 @@ Thanks for your interest in improving `node-red-cli`.
 
 Requirements:
 
-- Node.js 18 or newer
+- Node.js 24 or newer
 - npm
 
 Install dependencies and run the verification suite:
