@@ -61,3 +61,78 @@ test("unit: validateTarget reports missing wire targets and duplicate node ids",
   assert.match(result.errors.join("\n"), /duplicate node id 'calculate'/);
   assert.match(result.errors.join("\n"), /wires to missing node 'nowhere'/);
 });
+
+const secondTab = { id: "second-tab", type: "tab", label: "Second" };
+const singleLinkInConfigs = fixtureConfigs.filter(
+  (config) => !["slow", "delay", "slow-return"].includes(config.id)
+);
+const noLinkInConfigs = fixtureConfigs.filter((config) => config.type !== "link in");
+
+test("unit: validateTarget falls back to the only link-in node (1 link-in, 1 tab -> no arguments needed)", () => {
+  const RED = fakeRed(singleLinkInConfigs);
+  const result = validateTarget(RED, undefined, {});
+
+  assert.equal(result.ok, true, result.errors.join("; "));
+  assert.equal(result.targetId, "calculate");
+  assert.equal(result.flowId, "calculator");
+  assert.deepEqual(result.warnings, []);
+});
+
+test("unit: validateTarget requires target when several link-in nodes share the only tab (>1 link-in, 1 tab)", () => {
+  const RED = fakeRed(fixtureConfigs);
+  const result = validateTarget(RED, undefined, {});
+
+  assert.equal(result.ok, false);
+  assert.match(result.errors.join("\n"), /target must be specified because 2 link-in nodes are present/);
+});
+
+test("unit: validateTarget falls back across tabs with a warning (1 link-in, >1 tabs -> no arguments but warning)", () => {
+  const RED = fakeRed([...singleLinkInConfigs, secondTab]);
+  const result = validateTarget(RED, undefined, {});
+
+  assert.equal(result.ok, true, result.errors.join("; "));
+  assert.equal(result.targetId, "calculate");
+  assert.equal(result.flowId, "calculator");
+  assert.equal(result.warnings.length, 1);
+  assert.match(
+    result.warnings[0],
+    /flow not specified; inferred flow 'Calculator Example' and target 'calculate'/
+  );
+});
+
+test("unit: validateTarget requires both flow and target when ambiguous on both axes (>1 link-in, >1 tabs)", () => {
+  const RED = fakeRed([...fixtureConfigs, secondTab]);
+  const result = validateTarget(RED, undefined, {});
+
+  assert.equal(result.ok, false);
+  assert.match(result.errors.join("\n"), /flow must be specified because 2 workspace tabs are present/);
+  assert.match(
+    result.errors.join("\n"),
+    /target must be specified because 2 link-in nodes are present across those tabs/
+  );
+});
+
+test("unit: validateTarget reports a clear error when no link-in nodes exist at all", () => {
+  const RED = fakeRed(noLinkInConfigs);
+  const result = validateTarget(RED, undefined, {});
+
+  assert.equal(result.ok, false);
+  assert.match(result.errors.join("\n"), /no link-in nodes found in the flow configuration/);
+});
+
+test("unit: validateTarget still accepts an explicit target when several link-in nodes are present", () => {
+  const RED = fakeRed(fixtureConfigs);
+  const result = validateTarget(RED, "slow", { flow: "calculator" });
+
+  assert.equal(result.ok, true, result.errors.join("; "));
+  assert.equal(result.targetId, "slow");
+});
+
+test("unit: validateTarget falls back within an explicitly given flow that has exactly one link-in", () => {
+  const RED = fakeRed([...singleLinkInConfigs, secondTab]);
+  const result = validateTarget(RED, undefined, { flow: "calculator" });
+
+  assert.equal(result.ok, true, result.errors.join("; "));
+  assert.equal(result.targetId, "calculate");
+  assert.deepEqual(result.warnings, []);
+});

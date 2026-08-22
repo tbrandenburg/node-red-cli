@@ -59,3 +59,15 @@ test("integration: concurrent calls to different targets resolve independently",
     caller.close();
   }
 });
+
+test("integration: omitting the target rejects with a clear error when several link-in nodes are present", async () => {
+  const caller = createHostLinkCaller(RED);
+  try {
+    await assert.rejects(
+      caller.call(undefined, { payload: { x: 1, y: 2 } }, { timeout: 2000 }),
+      /target must be specified because 2 link-in nodes are present/
+    );
+  } finally {
+    caller.close();
+  }
+});

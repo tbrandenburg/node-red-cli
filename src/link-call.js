@@ -51,12 +51,95 @@ function resolveFlow(RED, flowSelector) {
   return { ok: false, errors, configs };
 }
 
-function validateTarget(RED, targetSelector, { flow } = {}) {
-  const flowResolution = resolveFlow(RED, flow);
-  const errors = [...flowResolution.errors];
-  const configs = flowResolution.configs;
+/** Find `link in` nodes, optionally restricted to a single flow tab. */
+function findLinkIns(configs, flowId) {
+  return [...configs.values()].filter(
+    (config) => config.type === "link in" && (typeof flowId === "undefined" || config.z === flowId)
+  );
+}
 
-  if (typeof targetSelector !== "string" || targetSelector.length === 0) {
+function resolveTargetFallback(configs, flows, flowSelector) {
+  const flowOmitted = typeof flowSelector === "undefined" || flowSelector === null || flowSelector === "";
+  if (!flowOmitted) return null; // caller resolves the flow normally and scopes the fallback to it
+
+  const allLinkIns = findLinkIns(configs);
+  if (allLinkIns.length === 1) {
+    const targetConfig = allLinkIns[0];
+    const flow = configs.get(targetConfig.z);
+    const warnings = [];
+    if (flows.length > 1) {
+      warnings.push(
+        `flow not specified; inferred flow '${flow?.label || flow?.id || targetConfig.z}' and target ` +
+          `'${targetConfig.name || targetConfig.id}' from the only link-in node in the configuration`
+      );
+    }
+    return { ok: true, flow, targetConfig, warnings };
+  }
+  if (allLinkIns.length === 0) {
+    return { ok: false, errors: ["no link-in nodes found in the flow configuration"], warnings: [] };
+  }
+  // allLinkIns.length > 1
+  if (flows.length <= 1) {
+    return {
+      ok: false,
+      errors: [`target must be specified because ${allLinkIns.length} link-in nodes are present`],
+      warnings: []
+    };
+  }
+  return {
+    ok: false,
+    errors: [
+      `flow must be specified because ${flows.length} workspace tabs are present`,
+      `target must be specified because ${allLinkIns.length} link-in nodes are present across those tabs`
+    ],
+    warnings: []
+  };
+}
+
+function validateTarget(RED, targetSelector, { flow } = {}) {
+  const errors = [];
+  const configs = getConfigs(RED, errors);
+  const flows = [...configs.values()].filter((config) => config.type === "tab");
+  const targetOmitted =
+    typeof targetSelector === "undefined" || targetSelector === null || targetSelector === "";
+
+  const fallback = targetOmitted ? resolveTargetFallback(configs, flows, flow) : null;
+
+  let selectedFlow;
+  let targetConfig;
+  let selectedFlowBy;
+  let warnings = [];
+
+  if (fallback) {
+    warnings = fallback.warnings;
+    if (fallback.ok) {
+      selectedFlow = fallback.flow;
+      targetConfig = fallback.targetConfig;
+      selectedFlowBy = "fallback-via-target";
+    } else {
+      errors.push(...fallback.errors);
+    }
+  } else {
+    const flowResolution = resolveFlow(RED, flow);
+    errors.push(...flowResolution.errors);
+    selectedFlow = flowResolution.flow;
+    selectedFlowBy = flowResolution.selectedBy;
+
+    if (targetOmitted && selectedFlow) {
+      const candidates = findLinkIns(configs, selectedFlow.id);
+      if (candidates.length === 1) {
+        targetConfig = candidates[0];
+      } else if (candidates.length === 0) {
+        errors.push(`no link-in nodes found in flow '${selectedFlow.id}'`);
+      } else {
+        errors.push(
+          `target must be specified because ${candidates.length} link-in nodes are present in flow '${selectedFlow.id}'`
+        );
+      }
+    }
+  }
+
+  if (!targetOmitted && (typeof targetSelector !== "string" || targetSelector.length === 0)) {
     errors.push("target must be a non-empty link-in id or name");
   }
 
@@ -71,22 +154,24 @@ function validateTarget(RED, targetSelector, { flow } = {}) {
     }
   }
 
-  const selectedFlow = flowResolution.flow;
-  let targetConfig = configs.get(targetSelector);
-  if (targetConfig && selectedFlow && targetConfig.z !== selectedFlow.id) {
-    errors.push(`target '${targetSelector}' does not belong to flow '${selectedFlow.id}'`);
-    targetConfig = undefined;
+  if (!targetOmitted) {
+    targetConfig = configs.get(targetSelector);
+    if (targetConfig && selectedFlow && targetConfig.z !== selectedFlow.id) {
+      errors.push(`target '${targetSelector}' does not belong to flow '${selectedFlow.id}'`);
+      targetConfig = undefined;
+    }
+    if (!targetConfig && selectedFlow && typeof targetSelector === "string") {
+      const matches = [...configs.values()].filter(
+        (config) =>
+          config.type === "link in" && config.z === selectedFlow.id && config.name === targetSelector
+      );
+      if (matches.length === 1) targetConfig = matches[0];
+      else if (matches.length > 1)
+        errors.push(`link in name '${targetSelector}' is ambiguous in flow '${selectedFlow.id}'`);
+    }
+    if (!targetConfig && selectedFlow)
+      errors.push(`target '${targetSelector}' is not present in flow '${selectedFlow.id}'`);
   }
-  if (!targetConfig && selectedFlow && typeof targetSelector === "string") {
-    const matches = [...configs.values()].filter(
-      (config) => config.type === "link in" && config.z === selectedFlow.id && config.name === targetSelector
-    );
-    if (matches.length === 1) targetConfig = matches[0];
-    else if (matches.length > 1)
-      errors.push(`link in name '${targetSelector}' is ambiguous in flow '${selectedFlow.id}'`);
-  }
-  if (!targetConfig && selectedFlow)
-    errors.push(`target '${targetSelector}' is not present in flow '${selectedFlow.id}'`);
   if (targetConfig && targetConfig.type !== "link in") {
     errors.push(`target '${targetConfig.id}' has type '${targetConfig.type}', expected 'link in'`);
   }
@@ -130,10 +215,11 @@ function validateTarget(RED, targetSelector, { flow } = {}) {
     ok: errors.length === 0,
     flowId: selectedFlow?.id,
     flowLabel: selectedFlow?.label,
-    selectedFlowBy: flowResolution.selectedBy,
+    selectedFlowBy,
     targetId: targetConfig?.id,
     targetName: targetConfig?.name,
     errors: [...new Set(errors)],
+    warnings: [...new Set(warnings)],
     reachableNodeIds: [...reachable],
     returnLinkOutIds: [...returnIds]
   };
@@ -183,10 +269,13 @@ function createHostLinkCaller(RED) {
     return false;
   });
 
-  function call(target, msg, { flow, timeout = 5000, clone = true } = {}) {
+  function call(target, msg, { flow, timeout = 5000, clone = true, onWarning } = {}) {
     const validation = validateTarget(RED, target, { flow });
     if (!validation.ok) {
       return Promise.reject(new Error(`preflight validation failed:\n- ${validation.errors.join("\n- ")}`));
+    }
+    if (typeof onWarning === "function") {
+      for (const warning of validation.warnings) onWarning(warning);
     }
     if (!Number.isFinite(timeout) || timeout <= 0) {
       return Promise.reject(new TypeError("timeout must be a positive number of milliseconds"));

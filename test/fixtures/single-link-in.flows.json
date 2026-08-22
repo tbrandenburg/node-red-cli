@@ -1,0 +1,46 @@
+[
+  {
+    "id": "calculator",
+    "type": "tab",
+    "label": "Calculator Example",
+    "disabled": false,
+    "info": ""
+  },
+  {
+    "id": "calculate",
+    "type": "link in",
+    "z": "calculator",
+    "name": "calculate",
+    "links": [],
+    "x": 120,
+    "y": 80,
+    "wires": [["add"]]
+  },
+  {
+    "id": "add",
+    "type": "function",
+    "z": "calculator",
+    "name": "add x + y",
+    "func": "msg.payload = msg.payload.x + msg.payload.y;\nreturn msg;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 310,
+    "y": 80,
+    "wires": [["return"]]
+  },
+  {
+    "id": "return",
+    "type": "link out",
+    "z": "calculator",
+    "name": "return",
+    "mode": "return",
+    "links": [],
+    "x": 500,
+    "y": 80,
+    "wires": []
+  }
+]

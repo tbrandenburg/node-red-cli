@@ -34,11 +34,15 @@ function parseArgs(argv) {
 function printUsage() {
   console.error(
     [
-      "Usage: node-red-cli <flows.json> <target> [--flow=<tab>] [--timeout=<ms>]",
+      "Usage: node-red-cli <flows.json> [target] [--flow=<tab>] [--timeout=<ms>]",
       "",
       "Reads a JSON message from stdin and invokes the given link-in target",
       "in the specified Node-RED flow file. The message returned by the",
       "matching link-out (return) node is printed as JSON to stdout.",
+      "",
+      "target defaults to the sole link-in node in the flow file when omitted.",
+      "If multiple tabs exist but only one link-in node is present overall,",
+      "it is used automatically (a warning is printed to stderr).",
       "",
       "Example:",
       '  echo \'{"payload":{"x":4,"y":5}}\' | node-red-cli flows.json calculate'
@@ -58,7 +62,7 @@ function readStdin() {
 async function main() {
   const { positionals, options } = parseArgs(process.argv.slice(2));
 
-  if (options.help || positionals.length < 2) {
+  if (options.help || positionals.length < 1) {
     printUsage();
     process.exitCode = options.help ? 0 : 1;
     return;
@@ -101,7 +105,11 @@ async function main() {
     await flowsStarted;
 
     caller = createHostLinkCaller(RED);
-    const result = await caller.call(target, msg, { flow: options.flow, timeout: options.timeout });
+    const result = await caller.call(target, msg, {
+      flow: options.flow,
+      timeout: options.timeout,
+      onWarning: (warning) => console.error(`node-red-cli: warning: ${warning}`)
+    });
     process.stdout.write(`${JSON.stringify(result)}\n`);
   } catch (error) {
     console.error(`node-red-cli: ${error.message}`);

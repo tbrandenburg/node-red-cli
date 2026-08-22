@@ -5,9 +5,25 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { spawn } = require("node:child_process");
 const { after, before, test } = require("node:test");
 const RED = require("node-red");
 const { createHostLinkCaller, resolveFlow, validateTarget } = require("../../src/link-call");
+
+/** Run the CLI as a subprocess, piping `input` to stdin and collecting output. */
+function runCli(args, input) {
+  return new Promise((resolve, reject) => {
+    const cliPath = path.join(__dirname, "..", "..", "bin", "node-red-cli.js");
+    const child = spawn(process.execPath, [cliPath, ...args]);
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => (stdout += chunk));
+    child.stderr.on("data", (chunk) => (stderr += chunk));
+    child.on("error", reject);
+    child.on("close", (code) => resolve({ code, stdout, stderr }));
+    child.stdin.end(input);
+  });
+}
 
 // This is the original flow used while designing the host-link-call adapter.
 // It now serves as a durable test asset: a minimal, real Node-RED flow with
@@ -72,4 +88,16 @@ test("e2e: a non-terminating flow rejects with a timeout", async () => {
 test("e2e: the flow file is never mutated by a call", () => {
   const flowHashAfter = crypto.createHash("sha256").update(fs.readFileSync(flowsPath)).digest("hex");
   assert.equal(flowHashAfter, flowHashBefore, "the flow file must remain unchanged");
+});
+
+test("e2e: the CLI falls back to the only link-in node when target is omitted", async () => {
+  const singleFlowsPath = path.join(__dirname, "..", "fixtures", "single-link-in.flows.json");
+  const { code, stdout, stderr } = await runCli(
+    [singleFlowsPath],
+    JSON.stringify({ payload: { x: 4, y: 5 } })
+  );
+
+  assert.equal(code, 0, stderr);
+  const lastLine = stdout.trim().split("\n").pop();
+  assert.equal(JSON.parse(lastLine).payload, 9);
 });
