@@ -1,0 +1,12 @@
+{
+  "name": "node-red-link-call-host-poc",
+  "private": true,
+  "version": "0.1.0",
+  "description": "PoC: invoke an existing Node-RED link-in/return flow from an embedded host without flow mutation",
+  "scripts": {
+    "test": "node poc.js"
+  },
+  "dependencies": {
+    "node-red": "5.0.4"
+  }
+}

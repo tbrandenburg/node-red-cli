@@ -1,0 +1,83 @@
+[
+  {
+    "id": "poc-tab",
+    "type": "tab",
+    "label": "Host link-call PoC",
+    "disabled": false,
+    "info": ""
+  },
+  {
+    "id": "calculate",
+    "type": "link in",
+    "z": "poc-tab",
+    "name": "calculate",
+    "links": [],
+    "x": 120,
+    "y": 80,
+    "wires": [["add"]]
+  },
+  {
+    "id": "add",
+    "type": "function",
+    "z": "poc-tab",
+    "name": "add x + y",
+    "func": "msg.payload = msg.payload.x + msg.payload.y;\nreturn msg;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 310,
+    "y": 80,
+    "wires": [["return"]]
+  },
+  {
+    "id": "return",
+    "type": "link out",
+    "z": "poc-tab",
+    "name": "return",
+    "mode": "return",
+    "links": [],
+    "x": 500,
+    "y": 80,
+    "wires": []
+  },
+  {
+    "id": "slow",
+    "type": "link in",
+    "z": "poc-tab",
+    "name": "slow",
+    "links": [],
+    "x": 140,
+    "y": 150,
+    "wires": [["delay"]]
+  },
+  {
+    "id": "delay",
+    "type": "function",
+    "z": "poc-tab",
+    "name": "delayed response",
+    "func": "await new Promise(resolve => setTimeout(resolve, 150));\nreturn msg;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 330,
+    "y": 150,
+    "wires": [["slow-return"]]
+  },
+  {
+    "id": "slow-return",
+    "type": "link out",
+    "z": "poc-tab",
+    "name": "slow return",
+    "mode": "return",
+    "links": [],
+    "x": 520,
+    "y": 150,
+    "wires": []
+  }
+]
