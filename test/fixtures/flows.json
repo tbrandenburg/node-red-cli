@@ -1,15 +1,15 @@
 [
   {
-    "id": "poc-tab",
+    "id": "calculator",
     "type": "tab",
-    "label": "Host link-call PoC",
+    "label": "Calculator Example",
     "disabled": false,
     "info": ""
   },
   {
     "id": "calculate",
     "type": "link in",
-    "z": "poc-tab",
+    "z": "calculator",
     "name": "calculate",
     "links": [],
     "x": 120,
@@ -19,7 +19,7 @@
   {
     "id": "add",
     "type": "function",
-    "z": "poc-tab",
+    "z": "calculator",
     "name": "add x + y",
     "func": "msg.payload = msg.payload.x + msg.payload.y;\nreturn msg;",
     "outputs": 1,
@@ -35,7 +35,7 @@
   {
     "id": "return",
     "type": "link out",
-    "z": "poc-tab",
+    "z": "calculator",
     "name": "return",
     "mode": "return",
     "links": [],
@@ -46,7 +46,7 @@
   {
     "id": "slow",
     "type": "link in",
-    "z": "poc-tab",
+    "z": "calculator",
     "name": "slow",
     "links": [],
     "x": 140,
@@ -56,7 +56,7 @@
   {
     "id": "delay",
     "type": "function",
-    "z": "poc-tab",
+    "z": "calculator",
     "name": "delayed response",
     "func": "await new Promise(resolve => setTimeout(resolve, 150));\nreturn msg;",
     "outputs": 1,
@@ -72,7 +72,7 @@
   {
     "id": "slow-return",
     "type": "link out",
-    "z": "poc-tab",
+    "z": "calculator",
     "name": "slow return",
     "mode": "return",
     "links": [],

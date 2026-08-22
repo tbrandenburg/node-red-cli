@@ -6,12 +6,12 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const RED = require("node-red");
-const { createHostLinkCaller, resolveFlow, validateTarget } = require("./host-link-call");
+const { createHostLinkCaller, resolveFlow, validateTarget } = require("../src/link-call");
 
 const root = __dirname;
-const flowsPath = path.join(root, "flows.json");
+const flowsPath = path.join(root, "fixtures", "flows.json");
 const flowHashBefore = crypto.createHash("sha256").update(fs.readFileSync(flowsPath)).digest("hex");
-const userDir = fs.mkdtempSync(path.join(os.tmpdir(), "nr-call-poc-"));
+const userDir = fs.mkdtempSync(path.join(os.tmpdir(), "nr-call-test-"));
 
 async function main() {
   RED.init({
@@ -19,7 +19,7 @@ async function main() {
     userDir,
     httpAdminRoot: false,
     httpNodeRoot: false,
-    credentialSecret: "poc-not-for-production",
+    credentialSecret: "test-not-for-production",
     editorTheme: { projects: { enabled: false } },
     logging: { console: { level: "warn", metrics: false, audit: false } }
   });
@@ -34,22 +34,22 @@ async function main() {
 
     const selectedFlow = resolveFlow(RED);
     assert.equal(selectedFlow.ok, true, selectedFlow.errors.join("; "));
-    assert.equal(selectedFlow.flow.id, "poc-tab");
+    assert.equal(selectedFlow.flow.id, "calculator");
     assert.equal(selectedFlow.selectedBy, "fallback");
 
-    const valid = validateTarget(RED, "calculate", { flow: "Host link-call PoC" });
+    const valid = validateTarget(RED, "calculate", { flow: "Calculator Example" });
     assert.equal(valid.ok, true, valid.errors.join("; "));
-    assert.equal(valid.flowId, "poc-tab");
+    assert.equal(valid.flowId, "calculator");
     assert.equal(valid.targetId, "calculate");
     assert.ok(valid.returnLinkOutIds.includes("return"));
 
-    const invalid = validateTarget(RED, "missing-target", { flow: "poc-tab" });
+    const invalid = validateTarget(RED, "missing-target", { flow: "calculator" });
     assert.equal(invalid.ok, false);
     assert.match(invalid.errors.join("\n"), /not present in flow/);
 
     caller = createHostLinkCaller(RED);
 
-    const result = await caller.call("calculate", { payload: { x: 4, y: 5 } }, { flow: "poc-tab" });
+    const result = await caller.call("calculate", { payload: { x: 4, y: 5 } }, { flow: "calculator" });
     assert.deepEqual(result, { payload: 9, _msgid: result._msgid });
     assert.equal(result._linkSource, undefined);
     assert.equal(typeof result._msgid, "string");

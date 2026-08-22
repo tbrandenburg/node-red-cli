@@ -1,10 +1,17 @@
 {
-  "name": "node-red-link-call-host-poc",
-  "private": true,
+  "name": "nr-call",
   "version": "0.1.0",
-  "description": "PoC: invoke an existing Node-RED link-in/return flow from an embedded host without flow mutation",
+  "description": "Call existing Node-RED flows from Node.js and the command line",
+  "main": "src/link-call.js",
+  "bin": {
+    "nr-call": "bin/nr-call.js"
+  },
   "scripts": {
-    "test": "node poc.js"
+    "test": "node test/integration.test.js"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
   },
   "dependencies": {
     "node-red": "5.0.4"
