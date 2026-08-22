@@ -17,6 +17,7 @@
     "node": ">=24"
   },
   "dependencies": {
+    "commander": "^15.0.0",
     "node-red": "5.0.4"
   },
   "devDependencies": {

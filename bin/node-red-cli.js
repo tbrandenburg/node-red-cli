@@ -3,82 +3,37 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { Command } = require("commander");
 const RED = require("node-red");
 const { createHostLinkCaller } = require("../src/link-call");
 const { applySetParams, parseFormatParam, formatPlain } = require("../src/cli-params");
+const { version } = require("../package.json");
 
-function parseArgs(argv) {
-  const positionals = [];
-  const options = { timeout: 5000, set: [], format: "plain" };
-
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i];
-    if (arg === "--help" || arg === "-h") {
-      options.help = true;
-      continue;
-    }
-    if (arg === "--version" || arg === "-v") {
-      options.version = true;
-      continue;
-    }
-    const flowMatch = arg.match(/^--flow=(.*)$/);
-    if (flowMatch) {
-      options.flow = flowMatch[1];
-      continue;
-    }
-    const timeoutMatch = arg.match(/^--timeout=(.*)$/);
-    if (timeoutMatch) {
-      options.timeout = Number(timeoutMatch[1]);
-      continue;
-    }
-    const formatMatch = arg.match(/^--format=(.*)$/);
-    if (formatMatch) {
-      options.format = formatMatch[1];
-      continue;
-    }
-    if (arg === "--set") {
-      options.set.push(argv[++i]);
-      continue;
-    }
-    positionals.push(arg);
-  }
-
-  return { positionals, options };
-}
-
-function printUsage() {
-  console.error(
-    [
-      "Usage: node-red-cli <flows.json> [target] [--flow=<tab>] [--timeout=<ms>]",
-      "                    [--set <key>=<value>]... [--format=json|plain]",
-      "",
-      "--version, -v prints the installed node-red-cli version and exits.",
-      "",
-      "Reads a JSON message from stdin and invokes the given link-in target",
-      "in the specified Node-RED flow file. The message returned by the",
-      "matching link-out (return) node is printed to stdout.",
-      "",
-      "target defaults to the sole link-in node in the flow file when omitted.",
-      "If multiple tabs exist but only one link-in node is present overall,",
-      "it is used automatically (a warning is printed to stderr).",
-      "",
-      "--set <key>=<value> sets msg.payload.<key> to <value>, repeatable.",
-      "Values are JSON-parsed when possible (4 -> number, true -> boolean),",
-      "otherwise kept as plain strings. --set params are applied on top of",
-      "the payload read from stdin (if any) and override matching keys.",
-      "",
-      "--format=json|plain selects the stdout output format (default: plain).",
-      "json prints the full result object as JSON. plain prints only the",
-      "result payload as plain text.",
-      "",
-      "Example:",
-      '  echo \'{"payload":{"x":4,"y":5}}\' | node-red-cli flows.json calculate',
-      "",
-      "Equivalent using --set instead of stdin:",
-      "  node-red-cli flows.json calculate --set x=4 --set y=5 < /dev/null"
-    ].join("\n")
-  );
-}
+const HELP_TEXT = [
+  "",
+  "Reads a JSON message from stdin and invokes the given link-in target",
+  "in the specified Node-RED flow file. The message returned by the",
+  "matching link-out (return) node is printed to stdout.",
+  "",
+  "target defaults to the sole link-in node in the flow file when omitted.",
+  "If multiple tabs exist but only one link-in node is present overall,",
+  "it is used automatically (a warning is printed to stderr).",
+  "",
+  "--set <key>=<value> sets msg.payload.<key> to <value>, repeatable.",
+  "Values are JSON-parsed when possible (4 -> number, true -> boolean),",
+  "otherwise kept as plain strings. --set params are applied on top of",
+  "the payload read from stdin (if any) and override matching keys.",
+  "",
+  "--format=json|plain selects the stdout output format (default: plain).",
+  "json prints the full result object as JSON. plain prints only the",
+  "result payload as plain text.",
+  "",
+  "Example:",
+  '  echo \'{"payload":{"x":4,"y":5}}\' | node-red-cli flows.json calculate',
+  "",
+  "Equivalent using --set instead of stdin:",
+  "  node-red-cli flows.json calculate --set x=4 --set y=5 < /dev/null"
+].join("\n");
 
 const LEVEL_NAMES = {
   10: "fatal",
@@ -114,26 +69,12 @@ function readStdin() {
   });
 }
 
-function printVersion() {
-  const { version } = require("../package.json");
-  console.log(version);
+/** Collects a repeatable `--set key=value` option into an array. */
+function collectSet(value, previous) {
+  return [...previous, value];
 }
 
-async function main() {
-  const { positionals, options } = parseArgs(process.argv.slice(2));
-
-  if (options.version) {
-    printVersion();
-    return;
-  }
-
-  if (options.help || positionals.length < 1) {
-    printUsage();
-    process.exitCode = options.help ? 0 : 1;
-    return;
-  }
-
-  const [flowFileArg, target] = positionals;
+async function run(flowFileArg, target, options) {
   const flowFile = path.resolve(process.cwd(), flowFileArg);
 
   if (!fs.existsSync(flowFile)) {
@@ -210,7 +151,24 @@ async function main() {
   }
 }
 
-main().catch((error) => {
+const program = new Command();
+
+program
+  .name("node-red-cli")
+  .usage(
+    "<flows.json> [target] [--flow=<tab>] [--timeout=<ms>] [--set <key>=<value>]... [--format=json|plain]"
+  )
+  .argument("<flows.json>", "path to a Node-RED flows.json file")
+  .argument("[target]", "link-in node name/id; defaults to the sole link-in node in the flow file")
+  .option("--flow <tab>", "flow tab name/id to search the target in")
+  .option("--timeout <ms>", "call timeout in milliseconds", (value) => Number(value), 5000)
+  .option("--format <format>", "output format: json|plain", "plain")
+  .option("--set <key=value>", "set msg.payload.<key> to <value>, repeatable", collectSet, [])
+  .addHelpText("after", HELP_TEXT)
+  .version(version, "-v, --version", "print the installed node-red-cli version and exit")
+  .action(run);
+
+program.parseAsync(process.argv).catch((error) => {
   console.error(error.stack || error.message);
   process.exitCode = 1;
 });
