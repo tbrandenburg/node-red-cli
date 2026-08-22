@@ -3,6 +3,11 @@ name: Audit
 on:
   push:
     branches: [main]
+  schedule:
+    # Weekly, Monday 06:00 UTC. Re-checks known vulnerabilities and probes
+    # whether a newer node-red release has resolved any of them, even
+    # without a push to main.
+    - cron: "0 6 * * 1"
   workflow_dispatch:
 
 jobs:
@@ -15,3 +20,13 @@ jobs:
           node-version: 24
       - run: make install
       - run: make audit
+
+  Check-Upstream-Fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - run: make install
+      - run: make audit-upstream

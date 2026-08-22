@@ -1,4 +1,4 @@
-.PHONY: install install-global format lint test audit ci clean release
+.PHONY: install install-global format lint test audit audit-upstream ci clean release
 
 install:
 	npm install
@@ -24,6 +24,33 @@ test:
 # blocking pushes or merges on something we can't fix ourselves.
 audit:
 	npm audit
+
+# Probes whether a newer, not-yet-adopted node-red release resolves our
+# currently known vulnerabilities, without touching this repo's pinned
+# dependency. 'make audit' alone can never detect this: it only re-checks
+# the version we already have locked in package-lock.json. This installs
+# the latest node-red into a scratch directory and re-runs npm audit
+# there. It intentionally fails (a call to action, not a bug) when that
+# latest version is clean, so a scheduled CI run surfaces "time to bump
+# node-red" instead of silently re-reporting the same known issues forever.
+audit-upstream:
+	@current=$$(node -p "require('./package.json').dependencies['node-red']"); \
+	latest=$$(npm view node-red version); \
+	if [ "$$current" = "$$latest" ]; then \
+		echo "node-red is already at the latest published version ($$latest); nothing newer to check."; \
+		exit 0; \
+	fi; \
+	echo "Currently pinned: node-red@$$current -- Latest published: node-red@$$latest"; \
+	scratch=$$(mktemp -d); \
+	(cd "$$scratch" && npm init -y >/dev/null && npm install "node-red@$$latest" --no-audit --no-fund >/dev/null 2>&1); \
+	if (cd "$$scratch" && npm audit); then \
+		echo "node-red@$$latest resolves all currently known vulnerabilities -- bump the dependency."; \
+		rm -rf "$$scratch"; \
+		exit 1; \
+	else \
+		echo "node-red@$$latest still carries known vulnerabilities; nothing actionable yet."; \
+		rm -rf "$$scratch"; \
+	fi
 
 # audit is intentionally best-effort here (leading '-'): format/lint/test
 # must pass to push or merge, but a failing audit must not block either.
