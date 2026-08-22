@@ -1,5 +1,9 @@
 # node-red-cli 🔗
 
+[![Checks](https://github.com/tbrandenburg/node-red-cli/actions/workflows/checks.yml/badge.svg)](https://github.com/tbrandenburg/node-red-cli/actions/workflows/checks.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Node.js >=24](https://img.shields.io/badge/node-%3E%3D24-brightgreen.svg)](package.json)
+
 ## Call Node-RED flows like Unix functions ⚡
 
 `node-red-cli` explores a simple, powerful idea: existing Node-RED flows
