@@ -7,7 +7,10 @@
     "node-red-cli": "bin/node-red-cli.js"
   },
   "scripts": {
-    "test": "node test/integration.test.js"
+    "test": "node --test",
+    "lint": "eslint .",
+    "format": "prettier --check .",
+    "format:write": "prettier --write ."
   },
   "license": "MIT",
   "engines": {
@@ -15,5 +18,10 @@
   },
   "dependencies": {
     "node-red": "5.0.4"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.9.0",
+    "prettier": "^3.9.6"
   }
 }

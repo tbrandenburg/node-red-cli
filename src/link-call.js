@@ -78,20 +78,24 @@ function validateTarget(RED, targetSelector, { flow } = {}) {
     targetConfig = undefined;
   }
   if (!targetConfig && selectedFlow && typeof targetSelector === "string") {
-    const matches = [...configs.values()].filter((config) =>
-      config.type === "link in" && config.z === selectedFlow.id && config.name === targetSelector
+    const matches = [...configs.values()].filter(
+      (config) => config.type === "link in" && config.z === selectedFlow.id && config.name === targetSelector
     );
     if (matches.length === 1) targetConfig = matches[0];
-    else if (matches.length > 1) errors.push(`link in name '${targetSelector}' is ambiguous in flow '${selectedFlow.id}'`);
+    else if (matches.length > 1)
+      errors.push(`link in name '${targetSelector}' is ambiguous in flow '${selectedFlow.id}'`);
   }
-  if (!targetConfig && selectedFlow) errors.push(`target '${targetSelector}' is not present in flow '${selectedFlow.id}'`);
+  if (!targetConfig && selectedFlow)
+    errors.push(`target '${targetSelector}' is not present in flow '${selectedFlow.id}'`);
   if (targetConfig && targetConfig.type !== "link in") {
     errors.push(`target '${targetConfig.id}' has type '${targetConfig.type}', expected 'link in'`);
   }
 
   const targetNode = targetConfig && RED.nodes.getNode(targetConfig.id);
-  if (targetConfig && !targetNode) errors.push(`target '${targetConfig.id}' is not instantiated in the runtime`);
-  else if (targetNode && targetNode.type !== "link in") errors.push(`runtime target '${targetConfig.id}' is not a 'link in' node`);
+  if (targetConfig && !targetNode)
+    errors.push(`target '${targetConfig.id}' is not instantiated in the runtime`);
+  else if (targetNode && targetNode.type !== "link in")
+    errors.push(`runtime target '${targetConfig.id}' is not a 'link in' node`);
 
   const reachable = new Set();
   const returnIds = new Set();
@@ -114,7 +118,8 @@ function validateTarget(RED, targetSelector, { flow } = {}) {
     errors.push(`target '${targetConfig.id}' has no reachable link out with mode 'return'`);
   }
   for (const returnId of returnIds) {
-    if (!RED.nodes.getNode(returnId)) errors.push(`return node '${returnId}' is not instantiated in the runtime`);
+    if (!RED.nodes.getNode(returnId))
+      errors.push(`return node '${returnId}' is not instantiated in the runtime`);
   }
 
   if (!RED.hooks || typeof RED.hooks.add !== "function" || typeof RED.hooks.remove !== "function") {

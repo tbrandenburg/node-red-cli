@@ -23,15 +23,34 @@ make install
 make test
 ```
 
-The test suite starts the embedded Node-RED runtime and verifies successful
-returns, preflight validation, timeout behavior, and that the flow file is not
-modified.
+`make install` also configures `git config core.hooksPath .githooks`, so a
+`pre-push` hook runs the full CI suite (`make ci`) automatically before every
+push.
+
+The test suite has three layers under `test/`:
+
+- `test/unit` — fast tests of `src/link-call.js` logic against a fake
+  Node-RED runtime, no embedded runtime started.
+- `test/integration` — tests of the adapter against a real embedded Node-RED
+  runtime, focused on adapter/runtime interaction (cleanup, concurrency).
+- `test/e2e` — the full round trip through the real runtime and the
+  `test/fixtures/flows.json` example flow: successful calls, preflight
+  validation, timeout behavior, and that the flow file is never modified.
+
+Run all checks the same way CI does:
+
+```bash
+make format   # prettier --check
+make lint     # eslint
+make test     # node --test
+make ci       # all three
+```
 
 ## Pull Requests
 
 1. Create a focused branch from `main`.
 2. Add or update tests for behavior changes.
-3. Run `make test` locally.
+3. Run `make ci` locally.
 4. Describe the motivation, implementation, and verification in the pull
    request.
 5. Call out compatibility considerations for the supported Node-RED version.

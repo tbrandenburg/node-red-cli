@@ -1,0 +1,6 @@
+#!/bin/sh
+# Runs the full CI suite (format, lint, test) before allowing a push.
+# Installed automatically by `make install` via `git config core.hooksPath .githooks`.
+set -e
+
+make ci
