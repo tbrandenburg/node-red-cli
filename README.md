@@ -95,6 +95,13 @@ make test
 `make install` also wires up a `pre-push` git hook that runs `make ci`
 (format, lint, and tests) automatically before every push.
 
+To use `node-red-cli` as a regular command instead of via `node bin/...`,
+install it globally:
+
+```bash
+make install-global
+```
+
 Try the CLI directly against the example flow:
 
 ```bash

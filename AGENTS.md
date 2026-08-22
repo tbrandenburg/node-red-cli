@@ -22,6 +22,7 @@ test/fixtures/       Example Node-RED flow used as a test asset
 ## Make targets
 
 - `make install` — install dependencies, wire up the pre-push hook
+- `make install-global` — install the `node-red-cli` command globally (`npm install -g .`)
 - `make format` — check formatting (prettier --check)
 - `make lint` — lint (eslint)
 - `make test` — run the test suite (node --test)
