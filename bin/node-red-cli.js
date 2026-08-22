@@ -9,7 +9,7 @@ const { applySetParams, parseFormatParam, formatPlain } = require("../src/cli-pa
 
 function parseArgs(argv) {
   const positionals = [];
-  const options = { timeout: 5000, set: [], format: "json" };
+  const options = { timeout: 5000, set: [], format: "plain" };
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -61,7 +61,7 @@ function printUsage() {
       "otherwise kept as plain strings. --set params are applied on top of",
       "the payload read from stdin (if any) and override matching keys.",
       "",
-      "--format=json|plain selects the stdout output format (default: json).",
+      "--format=json|plain selects the stdout output format (default: plain).",
       "json prints the full result object as JSON. plain prints only the",
       "result payload as plain text.",
       "",

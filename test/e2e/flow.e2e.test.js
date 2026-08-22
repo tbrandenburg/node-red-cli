@@ -98,14 +98,14 @@ test("e2e: the CLI falls back to the only link-in node when target is omitted", 
   );
 
   assert.equal(code, 0, stderr);
-  assert.equal(JSON.parse(stdout).payload, 9);
+  assert.equal(stdout.trim(), "9");
 });
 
 test("e2e: --set key=value params map onto payload attributes without any stdin", async () => {
   const { code, stdout, stderr } = await runCli([flowsPath, "calculate", "--set", "x=4", "--set", "y=5"], "");
 
   assert.equal(code, 0, stderr);
-  assert.equal(JSON.parse(stdout).payload, 9);
+  assert.equal(stdout.trim(), "9");
 });
 
 test("e2e: --set key=value params override matching keys from a stdin payload", async () => {
@@ -115,22 +115,22 @@ test("e2e: --set key=value params override matching keys from a stdin payload", 
   );
 
   assert.equal(code, 0, stderr);
-  assert.equal(JSON.parse(stdout).payload, 14);
+  assert.equal(stdout.trim(), "14");
 });
 
-test("e2e: stdout carries only the JSON result, Node-RED runtime logs go to stderr", async () => {
+test("e2e: stdout carries only the plain-text payload by default, Node-RED runtime logs go to stderr", async () => {
   const { code, stdout, stderr } = await runCli(
     [flowsPath, "calculate"],
     JSON.stringify({ payload: { x: 4, y: 5 } })
   );
 
   assert.equal(code, 0, stderr);
-  assert.equal(stdout.trim().split("\n").length, 1, `expected a single JSON line, got:\n${stdout}`);
-  assert.equal(JSON.parse(stdout).payload, 9);
+  assert.equal(stdout.trim().split("\n").length, 1, `expected a single line, got:\n${stdout}`);
+  assert.equal(stdout.trim(), "9");
   assert.match(stderr, /\[warn\]/);
 });
 
-test("e2e: --format=plain prints only the raw payload to stdout", async () => {
+test("e2e: --format=plain behaves the same as the default (no --format)", async () => {
   const { code, stdout, stderr } = await runCli(
     [flowsPath, "calculate", "--format=plain"],
     JSON.stringify({ payload: { x: 4, y: 5 } })
@@ -140,7 +140,7 @@ test("e2e: --format=plain prints only the raw payload to stdout", async () => {
   assert.equal(stdout.trim(), "9");
 });
 
-test("e2e: --format=json behaves the same as the default (no --format)", async () => {
+test("e2e: --format=json prints the full result object as JSON", async () => {
   const { code, stdout, stderr } = await runCli(
     [flowsPath, "calculate", "--format=json"],
     JSON.stringify({ payload: { x: 4, y: 5 } })
