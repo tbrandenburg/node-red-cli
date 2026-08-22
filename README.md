@@ -14,7 +14,20 @@ echo '{"payload":{"x":4,"y":5}}' | node-red-cli flows.json calculate
 ```
 
 ```json
-{ "payload": 9 }
+{ "payload": 9, "_msgid": "..." }
+```
+
+By default the full result object is printed as JSON. Pass `--format=plain`
+to print only the resulting payload as plain text instead, e.g. for use in
+scripts:
+
+```bash
+node bin/node-red-cli.js test/fixtures/flows.json calculate \
+  --set x=4 --set y=5 --format=plain < /dev/null
+```
+
+```
+9
 ```
 
 This turns Node-RED from a visual automation tool into a reusable runtime

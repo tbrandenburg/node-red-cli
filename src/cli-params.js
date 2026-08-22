@@ -44,4 +44,28 @@ function applySetParams(payload, pairs) {
   return merged;
 }
 
-module.exports = { parseSetParam, applySetParams };
+const VALID_FORMATS = ["json", "plain"];
+
+/**
+ * Validates the `--format` CLI option value.
+ *
+ * Returns the format unchanged when valid (`"json"` or `"plain"`); throws
+ * otherwise so the CLI can report a clear error and exit non-zero.
+ */
+function parseFormatParam(format) {
+  if (!VALID_FORMATS.includes(format)) {
+    throw new Error(`invalid --format value '${format}', expected one of: ${VALID_FORMATS.join(", ")}`);
+  }
+  return format;
+}
+
+/**
+ * Renders a link-out result for `--format=plain`: just the raw payload,
+ * as text. Strings are printed as-is; other JSON-compatible values
+ * (numbers, booleans, null, objects, arrays) are JSON-stringified.
+ */
+function formatPlain(payload) {
+  return typeof payload === "string" ? payload : JSON.stringify(payload);
+}
+
+module.exports = { parseSetParam, applySetParams, parseFormatParam, formatPlain, VALID_FORMATS };

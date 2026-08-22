@@ -2,7 +2,7 @@
 
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
-const { parseSetParam, applySetParams } = require("../../src/cli-params");
+const { parseSetParam, applySetParams, parseFormatParam, formatPlain } = require("../../src/cli-params");
 
 test("unit: parseSetParam JSON-parses values when possible", () => {
   assert.deepEqual(parseSetParam("x=4"), { key: "x", value: 4 });
@@ -42,4 +42,24 @@ test("unit: applySetParams builds a fresh object when the payload isn't a plain 
   assert.deepEqual(applySetParams(undefined, ["x=4", "y=5"]), { x: 4, y: 5 });
   assert.deepEqual(applySetParams("scalar", ["x=4"]), { x: 4 });
   assert.deepEqual(applySetParams([1, 2], ["x=4"]), { x: 4 });
+});
+
+test("unit: parseFormatParam accepts 'json' and 'plain'", () => {
+  assert.equal(parseFormatParam("json"), "json");
+  assert.equal(parseFormatParam("plain"), "plain");
+});
+
+test("unit: parseFormatParam rejects unknown format values", () => {
+  assert.throws(() => parseFormatParam("xml"), /invalid --format value 'xml'/);
+});
+
+test("unit: formatPlain returns strings as-is", () => {
+  assert.equal(formatPlain("hello"), "hello");
+});
+
+test("unit: formatPlain JSON-stringifies non-string payloads", () => {
+  assert.equal(formatPlain(9), "9");
+  assert.equal(formatPlain(true), "true");
+  assert.equal(formatPlain(null), "null");
+  assert.equal(formatPlain({ a: 1 }), '{"a":1}');
 });

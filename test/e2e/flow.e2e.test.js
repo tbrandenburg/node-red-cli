@@ -129,3 +129,34 @@ test("e2e: stdout carries only the JSON result, Node-RED runtime logs go to stde
   assert.equal(JSON.parse(stdout).payload, 9);
   assert.match(stderr, /\[warn\]/);
 });
+
+test("e2e: --format=plain prints only the raw payload to stdout", async () => {
+  const { code, stdout, stderr } = await runCli(
+    [flowsPath, "calculate", "--format=plain"],
+    JSON.stringify({ payload: { x: 4, y: 5 } })
+  );
+
+  assert.equal(code, 0, stderr);
+  assert.equal(stdout.trim(), "9");
+});
+
+test("e2e: --format=json behaves the same as the default (no --format)", async () => {
+  const { code, stdout, stderr } = await runCli(
+    [flowsPath, "calculate", "--format=json"],
+    JSON.stringify({ payload: { x: 4, y: 5 } })
+  );
+
+  assert.equal(code, 0, stderr);
+  assert.equal(JSON.parse(stdout).payload, 9);
+});
+
+test("e2e: an invalid --format value fails with a clear error and no stdout output", async () => {
+  const { code, stdout, stderr } = await runCli(
+    [flowsPath, "calculate", "--format=xml"],
+    JSON.stringify({ payload: { x: 4, y: 5 } })
+  );
+
+  assert.notEqual(code, 0);
+  assert.equal(stdout, "");
+  assert.match(stderr, /invalid --format value 'xml'/);
+});
