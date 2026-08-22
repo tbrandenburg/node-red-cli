@@ -1,4 +1,4 @@
-.PHONY: install install-global format lint test ci clean release
+.PHONY: install install-global format lint test audit ci clean release
 
 install:
 	npm install
@@ -16,7 +16,13 @@ lint:
 test:
 	npm test
 
-ci: format lint test
+# Flags known vulnerabilities without failing the build. Several are
+# currently unfixable transitive issues bundled inside node-red's own npm
+# client (jsonata/tar/undici) and require an upstream node-red release.
+audit:
+	@npm audit || true
+
+ci: format lint test audit
 
 clean:
 	rm -rf node_modules
