@@ -98,6 +98,17 @@ test("e2e: the CLI falls back to the only link-in node when target is omitted", 
   );
 
   assert.equal(code, 0, stderr);
-  const lastLine = stdout.trim().split("\n").pop();
-  assert.equal(JSON.parse(lastLine).payload, 9);
+  assert.equal(JSON.parse(stdout).payload, 9);
+});
+
+test("e2e: stdout carries only the JSON result, Node-RED runtime logs go to stderr", async () => {
+  const { code, stdout, stderr } = await runCli(
+    [flowsPath, "calculate"],
+    JSON.stringify({ payload: { x: 4, y: 5 } })
+  );
+
+  assert.equal(code, 0, stderr);
+  assert.equal(stdout.trim().split("\n").length, 1, `expected a single JSON line, got:\n${stdout}`);
+  assert.equal(JSON.parse(stdout).payload, 9);
+  assert.match(stderr, /\[warn\]/);
 });

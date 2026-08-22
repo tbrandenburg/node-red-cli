@@ -50,6 +50,31 @@ function printUsage() {
   );
 }
 
+const LEVEL_NAMES = {
+  10: "fatal",
+  20: "error",
+  30: "warn",
+  40: "info",
+  50: "debug",
+  60: "trace",
+  98: "audit",
+  99: "metric"
+};
+
+/**
+ * Node-RED's built-in console log handler always writes via console.log,
+ * i.e. to stdout. That would corrupt the JSON result on stdout, so replace
+ * it with a handler that writes to stderr instead.
+ */
+function stderrLogHandler() {
+  return (msg) => {
+    const levelName = LEVEL_NAMES[msg.level] || msg.level;
+    const source = msg.type ? `[${msg.type}:${msg.name || msg.id}] ` : "";
+    const message = msg.msg && msg.msg.message ? msg.msg.message : msg.msg;
+    console.error(`node-red-cli: [${levelName}] ${source}${message}`);
+  };
+}
+
 function readStdin() {
   return new Promise((resolve, reject) => {
     const chunks = [];
@@ -96,7 +121,7 @@ async function main() {
     httpAdminRoot: false,
     httpNodeRoot: false,
     editorTheme: { projects: { enabled: false } },
-    logging: { console: { level: "warn", metrics: false, audit: false } }
+    logging: { console: { level: "warn", metrics: false, audit: false, handler: stderrLogHandler } }
   });
 
   try {
