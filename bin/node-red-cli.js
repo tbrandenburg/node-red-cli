@@ -5,12 +5,14 @@ const fs = require("node:fs");
 const path = require("node:path");
 const RED = require("node-red");
 const { createHostLinkCaller } = require("../src/link-call");
+const { applySetParams } = require("../src/cli-params");
 
 function parseArgs(argv) {
   const positionals = [];
-  const options = { timeout: 5000 };
+  const options = { timeout: 5000, set: [] };
 
-  for (const arg of argv) {
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
     if (arg === "--help" || arg === "-h") {
       options.help = true;
       continue;
@@ -25,6 +27,10 @@ function parseArgs(argv) {
       options.timeout = Number(timeoutMatch[1]);
       continue;
     }
+    if (arg === "--set") {
+      options.set.push(argv[++i]);
+      continue;
+    }
     positionals.push(arg);
   }
 
@@ -35,6 +41,7 @@ function printUsage() {
   console.error(
     [
       "Usage: node-red-cli <flows.json> [target] [--flow=<tab>] [--timeout=<ms>]",
+      "                    [--set <key>=<value>]...",
       "",
       "Reads a JSON message from stdin and invokes the given link-in target",
       "in the specified Node-RED flow file. The message returned by the",
@@ -44,8 +51,16 @@ function printUsage() {
       "If multiple tabs exist but only one link-in node is present overall,",
       "it is used automatically (a warning is printed to stderr).",
       "",
+      "--set <key>=<value> sets msg.payload.<key> to <value>, repeatable.",
+      "Values are JSON-parsed when possible (4 -> number, true -> boolean),",
+      "otherwise kept as plain strings. --set params are applied on top of",
+      "the payload read from stdin (if any) and override matching keys.",
+      "",
       "Example:",
-      '  echo \'{"payload":{"x":4,"y":5}}\' | node-red-cli flows.json calculate'
+      '  echo \'{"payload":{"x":4,"y":5}}\' | node-red-cli flows.json calculate',
+      "",
+      "Equivalent using --set instead of stdin:",
+      "  node-red-cli flows.json calculate --set x=4 --set y=5 < /dev/null"
     ].join("\n")
   );
 }
@@ -108,6 +123,20 @@ async function main() {
     msg = rawInput.length > 0 ? JSON.parse(rawInput) : {};
   } catch (error) {
     console.error(`node-red-cli: invalid JSON on stdin: ${error.message}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  if (!msg || typeof msg !== "object" || Array.isArray(msg)) {
+    console.error("node-red-cli: the JSON message on stdin must be an object");
+    process.exitCode = 1;
+    return;
+  }
+
+  try {
+    msg.payload = applySetParams(msg.payload, options.set);
+  } catch (error) {
+    console.error(`node-red-cli: ${error.message}`);
     process.exitCode = 1;
     return;
   }

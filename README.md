@@ -122,6 +122,21 @@ inferred across multiple tabs):
 echo '{"payload":{"x":4,"y":5}}' | node bin/node-red-cli.js test/fixtures/single-link-in.flows.json
 ```
 
+Instead of building the whole JSON message yourself, individual payload
+attributes can be set directly from CLI params with repeatable
+`--set <key>=<value>` flags. Values are JSON-parsed when possible (so `4`
+becomes a number, `true` a boolean), otherwise kept as plain strings, and they
+are applied on top of (and override) any payload read from stdin:
+
+```bash
+node bin/node-red-cli.js test/fixtures/flows.json calculate \
+  --set x=4 --set y=5 < /dev/null
+```
+
+```json
+{ "payload": 9, "_msgid": "..." }
+```
+
 ## Host API 🛠️
 
 The core interface is intentionally small:
