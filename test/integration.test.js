@@ -11,7 +11,7 @@ const { createHostLinkCaller, resolveFlow, validateTarget } = require("../src/li
 const root = __dirname;
 const flowsPath = path.join(root, "fixtures", "flows.json");
 const flowHashBefore = crypto.createHash("sha256").update(fs.readFileSync(flowsPath)).digest("hex");
-const userDir = fs.mkdtempSync(path.join(os.tmpdir(), "nr-call-test-"));
+const userDir = fs.mkdtempSync(path.join(os.tmpdir(), "node-red-cli-test-"));
 
 async function main() {
   RED.init({

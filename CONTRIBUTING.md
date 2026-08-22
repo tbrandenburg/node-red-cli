@@ -1,6 +1,6 @@
 # Contributing 🤝
 
-Thanks for your interest in improving `nr-call`.
+Thanks for your interest in improving `node-red-cli`.
 
 ## Before You Start
 

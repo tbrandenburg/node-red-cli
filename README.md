@@ -1,12 +1,12 @@
-# nr-call 🔗
+# node-red-cli 🔗
 
 ## Call Node-RED flows like Unix functions ⚡
 
-`nr-call` explores a simple, powerful idea: existing Node-RED flows should be
-usable from a CLI or a Node.js host just like ordinary functions.
+`node-red-cli` explores a simple, powerful idea: existing Node-RED flows
+should be usable from a CLI or a Node.js host just like ordinary functions.
 
 ```bash
-echo '{"payload":{"x":4,"y":5}}' | nr-call flows.json calculate
+echo '{"payload":{"x":4,"y":5}}' | node-red-cli flows.json calculate
 ```
 
 ```json
@@ -36,7 +36,7 @@ stdout / Promise<Result>
 The flow itself stays untouched. No extra CLI nodes, no copy-pasted logic, and
 no permanently deployed adapter structure. 🚫🔧
 
-## Why nr-call? ✅
+## Why node-red-cli? ✅
 
 - **Reuse existing flows:** business logic stays where it's already
   maintained — in Node-RED.
@@ -73,7 +73,7 @@ The test suite verifies:
 ## Project layout 📁
 
 ```text
-bin/            CLI entrypoint (nr-call)
+bin/            CLI entrypoint (node-red-cli)
 src/            Host-side link-call adapter (library API)
 test/           Integration tests and fixtures
 ```
@@ -88,7 +88,7 @@ make test
 Try the CLI directly against the example flow:
 
 ```bash
-echo '{"payload":{"x":4,"y":5}}' | node bin/nr-call.js test/fixtures/flows.json calculate
+echo '{"payload":{"x":4,"y":5}}' | node bin/node-red-cli.js test/fixtures/flows.json calculate
 ```
 
 ```json

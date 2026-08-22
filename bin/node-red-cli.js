@@ -34,14 +34,14 @@ function parseArgs(argv) {
 function printUsage() {
   console.error(
     [
-      "Usage: nr-call <flows.json> <target> [--flow=<tab>] [--timeout=<ms>]",
+      "Usage: node-red-cli <flows.json> <target> [--flow=<tab>] [--timeout=<ms>]",
       "",
       "Reads a JSON message from stdin and invokes the given link-in target",
       "in the specified Node-RED flow file. The message returned by the",
       "matching link-out (return) node is printed as JSON to stdout.",
       "",
       "Example:",
-      '  echo \'{"payload":{"x":4,"y":5}}\' | nr-call flows.json calculate'
+      '  echo \'{"payload":{"x":4,"y":5}}\' | node-red-cli flows.json calculate'
     ].join("\n")
   );
 }
@@ -68,7 +68,7 @@ async function main() {
   const flowFile = path.resolve(process.cwd(), flowFileArg);
 
   if (!fs.existsSync(flowFile)) {
-    console.error(`nr-call: flow file not found: ${flowFile}`);
+    console.error(`node-red-cli: flow file not found: ${flowFile}`);
     process.exitCode = 1;
     return;
   }
@@ -78,12 +78,12 @@ async function main() {
   try {
     msg = rawInput.length > 0 ? JSON.parse(rawInput) : {};
   } catch (error) {
-    console.error(`nr-call: invalid JSON on stdin: ${error.message}`);
+    console.error(`node-red-cli: invalid JSON on stdin: ${error.message}`);
     process.exitCode = 1;
     return;
   }
 
-  const userDir = fs.mkdtempSync(path.join(require("node:os").tmpdir(), "nr-call-"));
+  const userDir = fs.mkdtempSync(path.join(require("node:os").tmpdir(), "node-red-cli-"));
   let caller;
 
   RED.init({
@@ -104,7 +104,7 @@ async function main() {
     const result = await caller.call(target, msg, { flow: options.flow, timeout: options.timeout });
     process.stdout.write(`${JSON.stringify(result)}\n`);
   } catch (error) {
-    console.error(`nr-call: ${error.message}`);
+    console.error(`node-red-cli: ${error.message}`);
     process.exitCode = 1;
   } finally {
     caller?.close();

@@ -1,10 +1,10 @@
 {
-  "name": "nr-call",
+  "name": "node-red-cli",
   "version": "0.1.0",
   "description": "Call existing Node-RED flows from Node.js and the command line",
   "main": "src/link-call.js",
   "bin": {
-    "nr-call": "bin/nr-call.js"
+    "node-red-cli": "bin/node-red-cli.js"
   },
   "scripts": {
     "test": "node test/integration.test.js"

@@ -142,7 +142,7 @@ function validateTarget(RED, targetSelector, { flow } = {}) {
  * and covered by integration tests; it is not a public Node-RED call API.
  */
 function createHostLinkCaller(RED) {
-  const callerId = `__nr-call-host-${crypto.randomBytes(8).toString("hex")}`;
+  const callerId = `__node-red-cli-host-${crypto.randomBytes(8).toString("hex")}`;
   const pending = new Map();
   const returnLinkOutIds = new Set();
   const hookId = `onReceive.${callerId}`;
