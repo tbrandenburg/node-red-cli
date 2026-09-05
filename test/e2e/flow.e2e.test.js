@@ -176,3 +176,63 @@ test("e2e: an invalid --format value fails with a clear error and no stdout outp
   assert.equal(stdout, "");
   assert.match(stderr, /invalid --format value 'xml'/);
 });
+
+test("e2e: --flow-json @path behaves identically to the positional <flows.json> arg", async () => {
+  const { code, stdout, stderr } = await runCli(
+    ["--flow-json", `@${flowsPath}`, "calculate"],
+    JSON.stringify({ payload: { x: 4, y: 5 } })
+  );
+
+  assert.equal(code, 0, stderr);
+  assert.equal(stdout.trim(), "9");
+});
+
+test("e2e: --flow-json - reads the flow definition from stdin, msg comes from --set", async () => {
+  const flowJson = fs.readFileSync(flowsPath, "utf8");
+  const { code, stdout, stderr } = await runCli(
+    ["--flow-json", "-", "calculate", "--set", "x=4", "--set", "y=5"],
+    flowJson
+  );
+
+  assert.equal(code, 0, stderr);
+  assert.equal(stdout.trim(), "9");
+});
+
+test("e2e: --flow-json accepts an inline JSON array", async () => {
+  const flowJson = fs.readFileSync(flowsPath, "utf8");
+  const { code, stdout, stderr } = await runCli(
+    ["--flow-json", flowJson, "calculate", "--set", "x=4", "--set", "y=5"],
+    ""
+  );
+
+  assert.equal(code, 0, stderr);
+  assert.equal(stdout.trim(), "9");
+});
+
+test("e2e: <flows.json> and --flow-json are mutually exclusive", async () => {
+  const { code, stdout, stderr } = await runCli([flowsPath, "--flow-json", `@${flowsPath}`, "calculate"], "");
+
+  assert.notEqual(code, 0);
+  assert.equal(stdout, "");
+  assert.match(stderr, /too many positional arguments|mutually exclusive/);
+});
+
+test("e2e: neither <flows.json> nor --flow-json given fails with a clear error", async () => {
+  const { code, stdout, stderr } = await runCli([], "");
+
+  assert.notEqual(code, 0);
+  assert.equal(stdout, "");
+  assert.match(stderr, /either <flows\.json> or --flow-json must be given/);
+});
+
+test("e2e: --flow-json never writes a temp flow file to disk", async () => {
+  const tmpBefore = fs.readdirSync(os.tmpdir()).filter((name) => name.startsWith("node-red-cli-"));
+  const { code, stderr } = await runCli(
+    ["--flow-json", `@${flowsPath}`, "calculate"],
+    JSON.stringify({ payload: { x: 4, y: 5 } })
+  );
+  assert.equal(code, 0, stderr);
+
+  const tmpAfter = fs.readdirSync(os.tmpdir()).filter((name) => name.startsWith("node-red-cli-"));
+  assert.deepEqual(tmpAfter, tmpBefore, "no leftover node-red-cli temp dirs/files expected");
+});

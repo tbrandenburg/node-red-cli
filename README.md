@@ -150,6 +150,43 @@ node bin/node-red-cli.js test/fixtures/flows.json calculate \
 9
 ```
 
+## Passing flow JSON inline 📥
+
+Instead of a `<flows.json>` file path, `--flow-json <value>` accepts the flow
+definition directly, so in-memory callers (tests, another Node.js process, a
+Node-RED editor "run this flow" action) never have to write a temp file just
+to satisfy this CLI's file-based API. It is mutually exclusive with the
+`<flows.json>` positional argument. `<value>` is one of:
+
+- an inline JSON array: `--flow-json '[{"id":"a",...}]'`
+- `-` to read the flow JSON from stdin
+- `@<path>` to read it from a file (equivalent to the positional argument)
+
+The flow is never written to disk in any of these forms.
+
+```bash
+node bin/node-red-cli.js --flow-json @test/fixtures/flows.json calculate \
+  --set x=4 --set y=5 < /dev/null
+```
+
+```
+9
+```
+
+Since stdin is also used to read the `msg` payload, `--flow-json -` and the
+stdin `msg` are mutually exclusive: when `--flow-json -` is used, stdin is
+consumed by the flow definition instead, so `msg` must be built entirely from
+`--set` params:
+
+```bash
+node bin/node-red-cli.js --flow-json - calculate --set x=4 --set y=5 \
+  < test/fixtures/flows.json
+```
+
+```
+9
+```
+
 ## Host API 🛠️
 
 The core interface is intentionally small:
