@@ -36,8 +36,16 @@ clean:
 # Cuts a release: bumps the version, commits, tags, pushes, and creates a
 # GitHub release. Usage: make release bump=patch|minor|major
 # Publishing the GitHub release triggers .github/workflows/publish.yml,
-# which runs `npm publish` using the NPM_TOKEN repo secret. Use `make
-# publish` below only for a manual/local publish outside that workflow.
+# which publishes via npm's OIDC "trusted publishing" (no token secret).
+# Bootstrap sequence for a brand-new package:
+#   1. make release bump=patch   (this target)
+#   2. make publish              (first publish must be manual/interactive;
+#                                  trusted publishing can't be configured
+#                                  until the package exists on npmjs.com)
+#   3. on npmjs.com: Packages -> node-red-cli -> Settings -> Trusted
+#      publishing -> add GitHub Actions, pointing at this repo and
+#      publish.yml
+#   4. subsequent `make release` runs auto-publish via CI, no manual step
 release:
 	@if [ -z "$(bump)" ]; then echo "usage: make release bump=patch|minor|major"; exit 1; fi
 	@case "$(bump)" in patch|minor|major) ;; *) echo "invalid bump '$(bump)', expected patch, minor, or major"; exit 1;; esac
@@ -47,10 +55,10 @@ release:
 	git push && git push --tags
 	gh release create "v$$(node -p "require('./package.json').version")" --generate-notes
 
-# Manual/local npm publish, for when the publish.yml GitHub Actions
-# workflow can't be used (e.g. no NPM_TOKEN secret configured yet).
-# Requires `npm login` (or an equivalent auth token) to already be set up.
-# Note: --provenance is intentionally omitted here (it only works from
-# GitHub Actions' OIDC context, see publish.yml for the provenance path).
+# Manual/local npm publish. Required for the very first publish of a new
+# package (see the bootstrap sequence above) since trusted publishing can
+# only be configured once the package already exists on npmjs.com.
+# Requires `npm login` (or an equivalent auth token) to already be set up;
+# npm will prompt for your 2FA OTP interactively.
 publish:
 	npm publish

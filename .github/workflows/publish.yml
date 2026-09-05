@@ -1,8 +1,19 @@
 name: Publish
 
 # Runs when a GitHub release is published (see `make release`, which tags
-# and creates the release). Requires an NPM_TOKEN repo secret with publish
-# access to the package name on the npm registry.
+# and creates the release). Uses npm's OIDC "trusted publishing" -- no
+# npm token/secret required. `id-token: write` lets GitHub issue a
+# short-lived OIDC token that npm exchanges for a scoped publish token
+# at publish time.
+#
+# Bootstrap note: trusted publishing is configured on an *existing*
+# package's settings page on npmjs.com (Packages -> node-red-cli ->
+# Settings -> Trusted publishing -> GitHub Actions, pointing at this
+# repo + this workflow filename). That page doesn't exist until the
+# package has been published at least once, so the very first release
+# must be published manually (`make publish`, interactive npm login/OTP)
+# before trusted publishing can be linked. Until that link is
+# configured, this workflow is expected to fail to authenticate.
 on:
   release:
     types: [published]
@@ -10,7 +21,7 @@ on:
 
 permissions:
   contents: read
-  id-token: write # required for npm provenance
+  id-token: write # required for OIDC trusted publishing
 
 jobs:
   Publish:
@@ -23,6 +34,5 @@ jobs:
           registry-url: https://registry.npmjs.org
       - run: make install
       - run: make ci
-      - run: npm publish --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - run: npm --version
+      - run: npm publish
