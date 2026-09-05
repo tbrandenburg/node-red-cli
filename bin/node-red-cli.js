@@ -8,6 +8,8 @@ const RED = require("node-red");
 const { createHostLinkCaller } = require("../src/link-call");
 const { createMemoryStorageModule } = require("../src/flow-storage");
 const { applySetParams, parseFlowJsonParam, parseFormatParam, formatPlain } = require("../src/cli-params");
+const { parseNodeModulesParam, resolveUserDir } = require("../src/node-modules");
+const { installMissingNodeModules } = require("../src/node-modules-install");
 const { version } = require("../package.json");
 
 const HELP_TEXT = [
@@ -38,6 +40,23 @@ const HELP_TEXT = [
   "The flow is never written to disk. Because stdin can only be consumed",
   "once, --flow-json - takes stdin for the flow definition, not for msg;",
   "in that mode msg must be built entirely from --set params.",
+  "",
+  "--user-dir [path] makes Node-RED's userDir persistent/reusable across",
+  "runs instead of the default ephemeral tmpdir that is created fresh and",
+  "deleted after every invocation. Pass a path to use a specific directory,",
+  "or the bare flag to use a stable cache dir ($XDG_CACHE_HOME/node-red-cli,",
+  "falling back to ~/.cache/node-red-cli). A shared userDir accumulates",
+  "Node-RED runtime/state files (e.g. .config.runtime.json) across runs;",
+  "delete the directory to clear the cache.",
+  "",
+  "--node-modules <name[@version]>[,...] installs any of the given",
+  "Node-RED node npm packages that are missing from userDir/node_modules",
+  "before the flow runs (repeatable and/or comma-separated). Requires an",
+  "explicit --user-dir (installing into an ephemeral userDir would just",
+  "reinstall from npm on every run). Already-installed, version-matching",
+  "modules are left untouched (no network access). This runs a real",
+  "`npm install`, i.e. arbitrary code execution from the configured npm",
+  "registry - only use it with trusted module names.",
   "",
   "Example:",
   '  echo \'{"payload":{"x":4,"y":5}}\' | node-red-cli flows.json calculate',
@@ -82,6 +101,11 @@ function readStdin() {
 
 /** Collects a repeatable `--set key=value` option into an array. */
 function collectSet(value, previous) {
+  return [...previous, value];
+}
+
+/** Collects a repeatable `--node-modules` option into an array. */
+function collectNodeModules(value, previous) {
   return [...previous, value];
 }
 
@@ -167,7 +191,39 @@ async function run(args, options) {
     return;
   }
 
-  const userDir = fs.mkdtempSync(path.join(require("node:os").tmpdir(), "node-red-cli-"));
+  let nodeModules;
+  try {
+    nodeModules = options.nodeModules.length > 0 ? parseNodeModulesParam(options.nodeModules) : [];
+  } catch (error) {
+    console.error(`node-red-cli: ${error.message}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  const persistentUserDir = resolveUserDir(options.userDir);
+  if (nodeModules.length > 0 && !persistentUserDir) {
+    console.error(
+      "node-red-cli: --node-modules requires an explicit --user-dir (a persistent directory); " +
+        "using it with the default ephemeral userDir would reinstall from npm on every run"
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  const userDir =
+    persistentUserDir || fs.mkdtempSync(path.join(require("node:os").tmpdir(), "node-red-cli-"));
+
+  if (nodeModules.length > 0) {
+    try {
+      await installMissingNodeModules(userDir, nodeModules);
+    } catch (error) {
+      console.error(`node-red-cli: ${error.message}`);
+      process.exitCode = 1;
+      if (!persistentUserDir) fs.rmSync(userDir, { recursive: true, force: true });
+      return;
+    }
+  }
+
   let caller;
 
   RED.init({
@@ -199,7 +255,7 @@ async function run(args, options) {
   } finally {
     caller?.close();
     await RED.stop();
-    fs.rmSync(userDir, { recursive: true, force: true });
+    if (!persistentUserDir) fs.rmSync(userDir, { recursive: true, force: true });
   }
 }
 
@@ -219,6 +275,16 @@ program
   .option("--timeout <ms>", "call timeout in milliseconds", (value) => Number(value), 5000)
   .option("--format <format>", "output format: json|plain", "plain")
   .option("--set <key=value>", "set msg.payload.<key> to <value>, repeatable", collectSet, [])
+  .option(
+    "--user-dir [path]",
+    "persistent Node-RED userDir (bare flag = default cache dir); omit for an ephemeral tmpdir"
+  )
+  .option(
+    "--node-modules <name[@version]>",
+    "install missing Node-RED node npm package(s), comma-separated and/or repeatable; requires --user-dir",
+    collectNodeModules,
+    []
+  )
   .addHelpText("after", HELP_TEXT)
   .version(version, "-v, --version", "print the installed node-red-cli version and exit")
   .action(run);
