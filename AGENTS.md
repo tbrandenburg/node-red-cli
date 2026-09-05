@@ -33,3 +33,4 @@ test/fixtures/       Example Node-RED flow used as a test asset
 ## Lessons Learned
 
 - 2026-09-05: Pitfall: assumed `npm audit fix` clears all fixable vulns after a dependency bump; it silently no-ops when only a `--force` path exists. Prevention: re-run `npm audit` after every `fix` and use `overrides` for stuck transitive deps instead of `--force`.
+- 2026-09-05: Pitfall: `make release`'s two separate `git push` calls each re-ran the full pre-push `make ci` (3x total per release), reliably exceeding automation timeouts mid-release. Prevention: push branch+tag together (`git push --no-verify --follow-tags`) when `make ci` already ran moments earlier in the same target.
