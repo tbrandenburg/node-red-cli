@@ -7,11 +7,11 @@ name: Publish
 # at publish time.
 #
 # Bootstrap note: trusted publishing is configured on an *existing*
-# package's settings page on npmjs.com (Packages -> node-red-cli ->
+# package's settings page on npmjs.com (Packages -> @tbrandenburg/node-red-cli ->
 # Settings -> Trusted publishing -> GitHub Actions, pointing at this
 # repo + this workflow filename). That page doesn't exist until the
 # package has been published at least once, so the very first release
-# must be published manually (`make publish`, interactive npm login/OTP)
+# must be published manually (`make publish`, interactive browser login)
 # before trusted publishing can be linked. Until that link is
 # configured, this workflow is expected to fail to authenticate.
 on:

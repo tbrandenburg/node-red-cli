@@ -100,7 +100,7 @@ test/fixtures/      Example Node-RED flow used as a test asset
 ## Install 📦
 
 ```bash
-npm install -g node-red-cli
+npm install -g @tbrandenburg/node-red-cli
 ```
 
 This installs the `node-red-cli` command globally, ready to use against

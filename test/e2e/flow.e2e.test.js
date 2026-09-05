@@ -234,5 +234,9 @@ test("e2e: --flow-json never writes a temp flow file to disk", async () => {
   assert.equal(code, 0, stderr);
 
   const tmpAfter = fs.readdirSync(os.tmpdir()).filter((name) => name.startsWith("node-red-cli-"));
-  assert.deepEqual(tmpAfter, tmpBefore, "no leftover node-red-cli temp dirs/files expected");
+  assert.deepEqual(
+    tmpAfter.filter((name) => !tmpBefore.includes(name)),
+    [],
+    "no leftover node-red-cli temp dirs/files expected"
+  );
 });
