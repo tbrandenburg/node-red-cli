@@ -187,6 +187,50 @@ node bin/node-red-cli.js --flow-json - calculate --set x=4 --set y=5 \
 9
 ```
 
+## Installing additional Node-RED node packages 📦
+
+By default the CLI creates a fresh, ephemeral Node-RED `userDir` per
+invocation and deletes it afterwards, so only the node types bundled with
+`node-red` itself are available to a flow. To use community/custom nodes
+(e.g. `node-red-contrib-something`), two options work together:
+
+- `--user-dir [path]` makes the `userDir` persistent/reusable across runs
+  instead of ephemeral. Pass a path to use a specific directory, or the bare
+  flag to use a stable cache dir (`$XDG_CACHE_HOME/node-red-cli`, falling
+  back to `~/.cache/node-red-cli`). Omitting `--user-dir` entirely preserves
+  today's ephemeral behavior unchanged.
+- `--node-modules <name[@version]>[,...]` installs any of the given
+  Node-RED node npm packages that are missing from `<userDir>/node_modules`
+  before the flow runs. Repeatable and/or comma-separated. **Requires an
+  explicit `--user-dir`** — using it with the default ephemeral `userDir`
+  is rejected with a clear error, since the installed module would be
+  thrown away immediately and reinstalled from npm on every single
+  invocation.
+
+```bash
+node bin/node-red-cli.js flows.json calculate \
+  --user-dir ~/.cache/node-red-cli \
+  --node-modules node-red-node-random \
+  --set x=4 --set y=5 < /dev/null
+```
+
+Already-installed, version-matching modules are left untouched, so repeat
+runs against a warm cache do not touch the network. **No invocation ever
+reaches out to npm unless `--node-modules` is explicitly passed.**
+
+⚠️ **Security note**: `--node-modules` runs a real `npm install`, i.e.
+arbitrary code execution from whatever npm registry is configured. Only
+use it with trusted module names. A minimal built-in denylist blocks
+obviously unsafe values (path traversal, URLs, whitespace); operators can
+add exact names or `*`-glob patterns via the `NODE_RED_CLI_DENY_MODULES`
+environment variable (comma-separated), e.g.
+`NODE_RED_CLI_DENY_MODULES="node-red-contrib-*-internal"`.
+
+⚠️ **Persistent `userDir` caveat**: a shared `userDir` accumulates
+Node-RED runtime/state files (e.g. `.config.runtime.json`) across runs.
+Delete the directory (or the default `~/.cache/node-red-cli`) to clear the
+cache and start fresh.
+
 ## Host API 🛠️
 
 The core interface is intentionally small:
