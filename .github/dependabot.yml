@@ -4,6 +4,10 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    groups:
+      node-red:
+        patterns:
+          - "node-red*"
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:

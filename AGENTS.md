@@ -29,3 +29,7 @@ test/fixtures/       Example Node-RED flow used as a test asset
 - `make ci` — format + lint + test (same as CI and the pre-push hook)
 - `make clean` — remove node_modules
 - `make release bump=patch|minor|major` — bump the version, tag, push, and create a GitHub release
+
+## Lessons Learned
+
+- 2026-09-05: Pitfall: assumed `npm audit fix` clears all fixable vulns after a dependency bump; it silently no-ops when only a `--force` path exists. Prevention: re-run `npm audit` after every `fix` and use `overrides` for stuck transitive deps instead of `--force`.
