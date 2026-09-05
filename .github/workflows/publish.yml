@@ -1,0 +1,28 @@
+name: Publish
+
+# Runs when a GitHub release is published (see `make release`, which tags
+# and creates the release). Requires an NPM_TOKEN repo secret with publish
+# access to the package name on the npm registry.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # required for npm provenance
+
+jobs:
+  Publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - run: make install
+      - run: make ci
+      - run: npm publish --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
