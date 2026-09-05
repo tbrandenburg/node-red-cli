@@ -44,6 +44,57 @@ function applySetParams(payload, pairs) {
   return merged;
 }
 
+/**
+ * Resolves a `--flow-json <value>` CLI option into a parsed flow array.
+ *
+ * Supports three forms:
+ * - `-`: read the flow JSON from stdin, via the injected `readStdin()`.
+ * - `@<path>`: read the flow JSON from the file at `<path>` (resolved
+ *   relative to `cwd`), mirroring the positional `<flows.json>` argument.
+ * - anything else: treated as an inline JSON string.
+ *
+ * Throws a clear `Error` when the value isn't valid JSON, or when it parses
+ * to something other than an array (Node-RED flow files are JSON arrays of
+ * node configs).
+ */
+async function parseFlowJsonParam(value, { readStdin, cwd = process.cwd() } = {}) {
+  let raw;
+  let source;
+  if (value === "-") {
+    if (typeof readStdin !== "function") {
+      throw new Error("--flow-json - requires stdin support");
+    }
+    raw = await readStdin();
+    source = "stdin";
+  } else if (value.startsWith("@")) {
+    const fs = require("node:fs");
+    const path = require("node:path");
+    const filePath = path.resolve(cwd, value.slice(1));
+    source = filePath;
+    try {
+      raw = fs.readFileSync(filePath, "utf8");
+    } catch (error) {
+      throw new Error(`could not read --flow-json file '${filePath}': ${error.message}`, { cause: error });
+    }
+  } else {
+    raw = value;
+    source = "--flow-json value";
+  }
+
+  let flows;
+  try {
+    flows = JSON.parse(raw);
+  } catch (error) {
+    throw new Error(`invalid JSON from ${source}: ${error.message}`, { cause: error });
+  }
+
+  if (!Array.isArray(flows)) {
+    throw new Error(`the flow JSON from ${source} must be an array of node configs`);
+  }
+
+  return flows;
+}
+
 const VALID_FORMATS = ["json", "plain"];
 
 /**
@@ -68,4 +119,11 @@ function formatPlain(payload) {
   return typeof payload === "string" ? payload : JSON.stringify(payload);
 }
 
-module.exports = { parseSetParam, applySetParams, parseFormatParam, formatPlain, VALID_FORMATS };
+module.exports = {
+  parseSetParam,
+  applySetParams,
+  parseFlowJsonParam,
+  parseFormatParam,
+  formatPlain,
+  VALID_FORMATS
+};

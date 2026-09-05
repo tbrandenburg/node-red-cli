@@ -1,8 +1,17 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
 const { test } = require("node:test");
-const { parseSetParam, applySetParams, parseFormatParam, formatPlain } = require("../../src/cli-params");
+const {
+  parseSetParam,
+  applySetParams,
+  parseFlowJsonParam,
+  parseFormatParam,
+  formatPlain
+} = require("../../src/cli-params");
 
 test("unit: parseSetParam JSON-parses values when possible", () => {
   assert.deepEqual(parseSetParam("x=4"), { key: "x", value: 4 });
@@ -62,4 +71,46 @@ test("unit: formatPlain JSON-stringifies non-string payloads", () => {
   assert.equal(formatPlain(true), "true");
   assert.equal(formatPlain(null), "null");
   assert.equal(formatPlain({ a: 1 }), '{"a":1}');
+});
+
+test("unit: parseFlowJsonParam parses an inline JSON array", async () => {
+  const flows = await parseFlowJsonParam('[{"id":"a","type":"tab"}]', {});
+  assert.deepEqual(flows, [{ id: "a", type: "tab" }]);
+});
+
+test("unit: parseFlowJsonParam reads the flow JSON from stdin when value is '-'", async () => {
+  const readStdin = async () => '[{"id":"a"}]';
+  const flows = await parseFlowJsonParam("-", { readStdin });
+  assert.deepEqual(flows, [{ id: "a" }]);
+});
+
+test("unit: parseFlowJsonParam reads the flow JSON from a file when value is '@path'", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "node-red-cli-flowjson-"));
+  const filePath = path.join(dir, "flows.json");
+  fs.writeFileSync(filePath, '[{"id":"b"}]');
+  try {
+    const flows = await parseFlowJsonParam(`@${filePath}`, {});
+    assert.deepEqual(flows, [{ id: "b" }]);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("unit: parseFlowJsonParam rejects a missing @path file with a clear error", async () => {
+  await assert.rejects(parseFlowJsonParam("@/no/such/file.json", {}), /could not read --flow-json file/);
+});
+
+test("unit: parseFlowJsonParam rejects invalid JSON with a clear error", async () => {
+  await assert.rejects(parseFlowJsonParam("{not json", {}), /invalid JSON from --flow-json value/);
+});
+
+test("unit: parseFlowJsonParam rejects a non-array result", async () => {
+  await assert.rejects(
+    parseFlowJsonParam('{"id":"a"}', {}),
+    /the flow JSON from --flow-json value must be an array/
+  );
+});
+
+test("unit: parseFlowJsonParam requires readStdin support for '-'", async () => {
+  await assert.rejects(parseFlowJsonParam("-", {}), /requires stdin support/);
 });
