@@ -6,12 +6,37 @@
   "bin": {
     "node-red-cli": "bin/node-red-cli.js"
   },
+  "files": [
+    "bin",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "test": "node --test",
     "lint": "eslint .",
     "format": "prettier --check .",
-    "format:write": "prettier --write ."
+    "format:write": "prettier --write .",
+    "prepublishOnly": "make ci"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tbrandenburg/node-red-cli.git"
+  },
+  "homepage": "https://github.com/tbrandenburg/node-red-cli#readme",
+  "bugs": {
+    "url": "https://github.com/tbrandenburg/node-red-cli/issues"
+  },
+  "author": "Tom Brandenburg",
+  "keywords": [
+    "node-red",
+    "cli",
+    "link-in",
+    "link-out",
+    "automation",
+    "workflow",
+    "flow"
+  ],
   "license": "MIT",
   "engines": {
     "node": ">=24"

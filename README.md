@@ -97,7 +97,18 @@ test/e2e/           Full round trip through the example flow
 test/fixtures/      Example Node-RED flow used as a test asset
 ```
 
+## Install 📦
+
+```bash
+npm install -g node-red-cli
+```
+
+This installs the `node-red-cli` command globally, ready to use against
+any Node-RED flow file (see [Quick start](#quick-start-) below).
+
 ## Quick start 🚀
+
+To build and run from a repo checkout instead (e.g. for contributing):
 
 ```bash
 make install
@@ -107,8 +118,8 @@ make test
 `make install` also wires up a `pre-push` git hook that runs `make ci`
 (format, lint, and tests) automatically before every push.
 
-To use `node-red-cli` as a regular command instead of via `node bin/...`,
-install it globally:
+To use `node-red-cli` as a regular command from a checkout instead of via
+`node bin/...`, install it globally from the local source:
 
 ```bash
 make install-global

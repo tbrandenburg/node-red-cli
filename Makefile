@@ -1,4 +1,4 @@
-.PHONY: install install-global format lint test audit ci clean release
+.PHONY: install install-global format lint test audit ci clean release publish
 
 install:
 	npm install
@@ -35,6 +35,9 @@ clean:
 
 # Cuts a release: bumps the version, commits, tags, pushes, and creates a
 # GitHub release. Usage: make release bump=patch|minor|major
+# Publishing the GitHub release triggers .github/workflows/publish.yml,
+# which runs `npm publish` using the NPM_TOKEN repo secret. Use `make
+# publish` below only for a manual/local publish outside that workflow.
 release:
 	@if [ -z "$(bump)" ]; then echo "usage: make release bump=patch|minor|major"; exit 1; fi
 	@case "$(bump)" in patch|minor|major) ;; *) echo "invalid bump '$(bump)', expected patch, minor, or major"; exit 1;; esac
@@ -43,3 +46,11 @@ release:
 	npm version $(bump) -m "chore: release v%s"
 	git push && git push --tags
 	gh release create "v$$(node -p "require('./package.json').version")" --generate-notes
+
+# Manual/local npm publish, for when the publish.yml GitHub Actions
+# workflow can't be used (e.g. no NPM_TOKEN secret configured yet).
+# Requires `npm login` (or an equivalent auth token) to already be set up.
+# Note: --provenance is intentionally omitted here (it only works from
+# GitHub Actions' OIDC context, see publish.yml for the provenance path).
+publish:
+	npm publish
