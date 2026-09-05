@@ -34,6 +34,15 @@ node-red-cli test/fixtures/flows.json calculate \
 This turns Node-RED from a visual automation tool into a reusable runtime
 building block for scripts, services, pipelines, and developer tooling. 🧩
 
+## Install 📦
+
+```bash
+npm install -g @tbrandenburg/node-red-cli
+```
+
+This installs the `node-red-cli` command globally, ready to use against
+any Node-RED flow file (see [Quick start](#quick-start-) below).
+
 ## The idea 💡
 
 An existing flow becomes a clean input/output interface:
@@ -98,15 +107,6 @@ test/integration/   Adapter tests against a real embedded runtime
 test/e2e/           Full round trip through the example flow
 test/fixtures/      Example Node-RED flow used as a test asset
 ```
-
-## Install 📦
-
-```bash
-npm install -g @tbrandenburg/node-red-cli
-```
-
-This installs the `node-red-cli` command globally, ready to use against
-any Node-RED flow file (see [Quick start](#quick-start-) below).
 
 ## Quick start 🚀
 
