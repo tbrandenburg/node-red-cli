@@ -4,6 +4,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node.js >=24](https://img.shields.io/badge/node-%3E%3D24-brightgreen.svg)](package.json)
 
+> Install the CLI with `npm install -g @tbrandenburg/node-red-cli`.
+
 ## Call Node-RED flows like Unix functions ⚡
 
 `node-red-cli` explores a simple, powerful idea: existing Node-RED flows
@@ -21,7 +23,7 @@ By default only the resulting payload is printed as plain text. Pass
 `--format=json` to print the full result object as JSON instead:
 
 ```bash
-node bin/node-red-cli.js test/fixtures/flows.json calculate \
+node-red-cli test/fixtures/flows.json calculate \
   --set x=4 --set y=5 --format=json < /dev/null
 ```
 
@@ -118,8 +120,8 @@ make test
 `make install` also wires up a `pre-push` git hook that runs `make ci`
 (format, lint, and tests) automatically before every push.
 
-To use `node-red-cli` as a regular command from a checkout instead of via
-`node bin/...`, install it globally from the local source:
+To use `node-red-cli` as a regular command from a repo checkout, install it
+globally from the local source:
 
 ```bash
 make install-global
@@ -128,7 +130,7 @@ make install-global
 Try the CLI directly against the example flow:
 
 ```bash
-echo '{"payload":{"x":4,"y":5}}' | node bin/node-red-cli.js test/fixtures/flows.json calculate
+echo '{"payload":{"x":4,"y":5}}' | node-red-cli test/fixtures/flows.json calculate
 ```
 
 ```
@@ -143,7 +145,7 @@ node, it is used automatically (with a warning on stderr if it also had to be
 inferred across multiple tabs):
 
 ```bash
-echo '{"payload":{"x":4,"y":5}}' | node bin/node-red-cli.js test/fixtures/single-link-in.flows.json
+echo '{"payload":{"x":4,"y":5}}' | node-red-cli test/fixtures/single-link-in.flows.json
 ```
 
 Instead of building the whole JSON message yourself, individual payload
@@ -153,7 +155,7 @@ becomes a number, `true` a boolean), otherwise kept as plain strings, and they
 are applied on top of (and override) any payload read from stdin:
 
 ```bash
-node bin/node-red-cli.js test/fixtures/flows.json calculate \
+node-red-cli test/fixtures/flows.json calculate \
   --set x=4 --set y=5 < /dev/null
 ```
 
@@ -176,7 +178,7 @@ to satisfy this CLI's file-based API. It is mutually exclusive with the
 The flow is never written to disk in any of these forms.
 
 ```bash
-node bin/node-red-cli.js --flow-json @test/fixtures/flows.json calculate \
+node-red-cli --flow-json @test/fixtures/flows.json calculate \
   --set x=4 --set y=5 < /dev/null
 ```
 
@@ -190,7 +192,7 @@ consumed by the flow definition instead, so `msg` must be built entirely from
 `--set` params:
 
 ```bash
-node bin/node-red-cli.js --flow-json - calculate --set x=4 --set y=5 \
+node-red-cli --flow-json - calculate --set x=4 --set y=5 \
   < test/fixtures/flows.json
 ```
 
@@ -219,7 +221,7 @@ invocation and deletes it afterwards, so only the node types bundled with
   invocation.
 
 ```bash
-node bin/node-red-cli.js flows.json calculate \
+node-red-cli flows.json calculate \
   --user-dir ~/.cache/node-red-cli \
   --node-modules node-red-node-random \
   --set x=4 --set y=5 < /dev/null
