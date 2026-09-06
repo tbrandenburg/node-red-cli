@@ -1,6 +1,6 @@
 {
   "name": "@tbrandenburg/node-red-cli",
-  "version": "0.2.13",
+  "version": "0.2.14",
   "description": "Call existing Node-RED flows from Node.js and the command line",
   "main": "src/link-call.js",
   "bin": {
