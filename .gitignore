@@ -5,3 +5,4 @@ yarn-error.log*
 *.tgz
 *.tar.gz
 .DS_Store
+.worktrees/
