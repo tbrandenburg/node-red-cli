@@ -35,6 +35,43 @@ function stderrLogHandler() {
 }
 
 /**
+ * Node-RED's flow parser (`@node-red/runtime/lib/flows/util.js`) classifies
+ * *any* node lacking both `x` and `y` properties as a global config node --
+ * regardless of its actual `type` -- since those coordinates are otherwise
+ * only ever used by the editor canvas. A real, editor-exported flow always
+ * has them on every wired node, so this never matters there. But hand-authored
+ * `--flow-json` flows (this tool's own core use case; see the README's
+ * `agent` example) commonly omit them, since they carry no runtime meaning.
+ * A wired node misclassified as a config node undergoes `Flow.js`'s
+ * config-node circular-dependency scan instead of normal instantiation,
+ * which scans every one of its own property values against other node ids
+ * and throws "Circular config node dependency detected" the moment any
+ * property value happens to equal another node's id -- including its own,
+ * e.g. a node whose `name` equals its own `id` (an extremely natural thing
+ * to write by hand, and exactly what the README's own agent example does).
+ * That aborts the whole flow's instantiation, so downstream preflight
+ * validation reports the target/return nodes as "not instantiated" even
+ * though the flow is otherwise entirely valid (see issue #28).
+ *
+ * Fix: assign synthetic coordinates to every node that is unambiguously a
+ * regular (wired) node -- i.e. it already declares a `wires` array, or is a
+ * `link out` node (which routes via `links` instead of `wires`) -- so
+ * Node-RED's parser classifies it correctly. Nodes without either (real
+ * config nodes) are left untouched.
+ */
+function withDeployCoordinates(flow) {
+  let n = 0;
+  return flow.map((node) => {
+    const isWired = Object.prototype.hasOwnProperty.call(node, "wires") || node.type === "link out";
+    const hasCoords =
+      Object.prototype.hasOwnProperty.call(node, "x") && Object.prototype.hasOwnProperty.call(node, "y");
+    if (!isWired || hasCoords) return node;
+    n += 1;
+    return { ...node, x: n * 100, y: 100 };
+  });
+}
+
+/**
  * Waits for Node-RED to finish attempting to start the deployed flows.
  *
  * `RED.start()` resolves as soon as the runtime itself has booted, but the
@@ -55,20 +92,39 @@ function stderrLogHandler() {
  * either way; if the flows never actually started, the target/return nodes
  * simply won't be instantiated and the existing preflight validation in
  * `createHostLinkCaller` reports the real, specific error instead.
+ *
+ * A `stop`/`safe` `runtime-state` event and a real `flows:started` are
+ * mutually exclusive outcomes of the same deploy attempt in the installed
+ * `@node-red/runtime` (each early-return failure path returns before ever
+ * reaching the code that emits `flows:started`), so this never races in
+ * practice today. Still, resolving on `stop`/`safe` is deferred by one
+ * macrotask (`setImmediate`) rather than immediately, so that if a
+ * `flows:started` for the same attempt is already scheduled to fire right
+ * after, it wins instead -- cheap insurance against exactly the kind of
+ * premature-resolution regression reported in issue #28, without delaying
+ * genuine failures beyond a single negligible tick.
+ *
+ * (Uses `setTimeout(fn, 0)` rather than `setImmediate` purely because the
+ * latter isn't part of this project's configured ESLint globals; both defer
+ * to the next macrotask.)
  */
 function waitForFlowsSettled(RED) {
   return new Promise((resolve) => {
-    const onStarted = () => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      RED.events.removeListener("flows:started", onStarted);
       RED.events.removeListener("runtime-event", onRuntimeEvent);
       resolve();
     };
+    const onStarted = () => finish();
     const onRuntimeEvent = (event) => {
       if (
         event?.id === "runtime-state" &&
         (event.payload?.state === "stop" || event.payload?.state === "safe")
       ) {
-        RED.events.removeListener("flows:started", onStarted);
-        resolve();
+        setTimeout(finish, 0);
       }
     };
     RED.events.once("flows:started", onStarted);
@@ -113,7 +169,7 @@ async function runFlowInvocation({ flow, flowFile, msg, options }) {
 
     let caller;
     RED.init({
-      ...(flow ? { storageModule: createMemoryStorageModule(flow) } : { flowFile }),
+      ...(flow ? { storageModule: createMemoryStorageModule(withDeployCoordinates(flow)) } : { flowFile }),
       userDir,
       httpAdminRoot: false,
       httpNodeRoot: false,
