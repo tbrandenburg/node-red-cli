@@ -320,10 +320,9 @@ already ships `opencode` + `node-red-agents`, e.g.
 [`ghcr.io/tbrandenburg/agentic-workflow-dev-env`](https://github.com/tbrandenburg/agentic-workflow-dev-env)
 (`--network` is required for network access, since the agent calls out to
 its own API; `--node-modules`/`--user-dir` are still required too, since
-Node-RED only discovers node types from a userDir it actually loaded —
-see [#24](https://github.com/tbrandenburg/node-red-cli/issues/24) for a
-currently-tracked compatibility gap when the image's own default userDir
-already ships the package):
+Node-RED only discovers node types from a userDir it actually loaded, and
+`--docker` doesn't yet reuse an image's own pre-populated default userDir —
+see [#31](https://github.com/tbrandenburg/node-red-cli/issues/31)):
 
 ```bash
 echo '{"payload":"Summarize this repo in one sentence.","cwd":"/repo"}' \
