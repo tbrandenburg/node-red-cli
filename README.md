@@ -244,6 +244,59 @@ Node-RED runtime/state files (e.g. `.config.runtime.json`) across runs.
 Delete the directory (or the default `~/.cache/node-red-cli`) to clear the
 cache and start fresh.
 
+## Running sandboxed in Docker 🐳
+
+`--docker [value]` re-executes the _entire_ invocation (flow resolution,
+link call, and any `--node-modules` install) inside a disposable, hardened
+Docker container instead of the host process — useful when `--node-modules`
+installs untrusted community packages, since that's a real code-execution
+surface. Works for both `<flows.json>` (from-file) and `--flow-json` modes,
+with **zero bind mounts and zero leftover host files**: the resolved flow
+and message are streamed over the container's stdin as a single JSON
+envelope, never written to disk.
+
+```bash
+node-red-cli flows.json calculate --set x=4 --set y=5 --docker
+```
+
+`<value>` is one of:
+
+- **omitted (bare flag)**: resolves/builds a locally-cached image tagged
+  `node-red-cli-sandbox:<installed node-red-cli version>`, built from
+  `node:24-slim` + a global `npm install` of this package from the public
+  npm registry. Cached by Docker forever afterward (npm registry versions
+  are immutable, so a version bump is the only thing that invalidates the
+  tag) — later runs of the same version need no network access beyond the
+  container's own sandboxed execution.
+- **`<image[:tag]>`**: use an explicit image. If it already contains the
+  sandbox entrypoint, it's used as-is; otherwise `node-red-cli` is
+  installed into a derived image (`FROM <image>` + a global npm install)
+  on first use, cached by image+version so the check/build only happens
+  once per image.
+- **`@<path>`** or an **http(s) URL**: build from a user-supplied
+  Dockerfile (local file or fetched URL), cached by content hash so an
+  unchanged Dockerfile isn't rebuilt every run.
+
+Sandboxing defaults applied to every `--docker` run:
+
+- `--rm -i` (always disposable)
+- `--network none`, unless `--node-modules` is also given (needs registry
+  access) — narrowest network exposure by default
+- `--read-only` root filesystem + a `/tmp` tmpfs mount
+- `--cap-drop=ALL`
+- `--security-opt=no-new-privileges`
+
+Combined with `--user-dir` + `--node-modules`, persistence uses a
+deterministic **named Docker volume** (derived from the `--user-dir` value)
+mounted inside the container, never a host bind mount — so "no stray host
+files" holds even for persistent installs.
+
+Fails fast with a clear `node-red-cli: docker unavailable: ...` error if
+the Docker CLI/daemon isn't reachable, or `node-red-cli: docker build
+failed: ...` if the image build fails (e.g. the local version isn't yet
+published to npm — use `--docker <image>` or `--docker @path` as an
+escape hatch in that case).
+
 ## Host API 🛠️
 
 The core interface is intentionally small:
