@@ -319,8 +319,11 @@ The same flow runs sandboxed via `--docker <image>` against an image that
 already ships `opencode` + `node-red-agents`, e.g.
 [`ghcr.io/tbrandenburg/agentic-workflow-dev-env`](https://github.com/tbrandenburg/agentic-workflow-dev-env)
 (`--network` is required for network access, since the agent calls out to
-its own API — the package is already in the image, so `--node-modules` is
-not needed here):
+its own API; `--node-modules`/`--user-dir` are still required too, since
+Node-RED only discovers node types from a userDir it actually loaded —
+see [#24](https://github.com/tbrandenburg/node-red-cli/issues/24) for a
+currently-tracked compatibility gap when the image's own default userDir
+already ships the package):
 
 ```bash
 echo '{"payload":"Summarize this repo in one sentence.","cwd":"/repo"}' \
@@ -332,7 +335,8 @@ echo '{"payload":"Summarize this repo in one sentence.","cwd":"/repo"}' \
        "cwd":"cwd","cwdType":"msg","wires":[["return"],[]]},
       {"id":"return","type":"link out","z":"tab","name":"return","mode":"return"}
     ]' ask --docker ghcr.io/tbrandenburg/agentic-workflow-dev-env:latest \
-    --network --timeout=120000 --format=json
+    --node-modules @tbrandenburg/node-red-agents --user-dir --network \
+    --timeout=120000 --format=json
 ```
 
 ## Host API 🛠️
