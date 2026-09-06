@@ -54,6 +54,7 @@ make install-global
   - [Passing flow JSON inline](#passing-flow-json-inline)
   - [Installing additional Node-RED node packages](#installing-additional-node-red-node-packages)
   - [Running sandboxed in Docker](#running-sandboxed-in-docker-)
+  - [Agentic workflows](#agentic-workflows-)
 - [Host API](#host-api-)
 - [Technical approach](#technical-approach-)
 - [Preflight and limitations](#preflight-and-limitations-)
@@ -292,6 +293,33 @@ the Docker CLI/daemon isn't reachable, or `node-red-cli: docker build
 failed: ...` if the image build fails (e.g. the local version isn't yet
 published to npm — use `--docker <image>` or `--docker @path` as an
 escape hatch in that case).
+
+### Agentic workflows 🤖
+
+Node-RED nodes such as [`agent`](https://www.npmjs.com/package/@tbrandenburg/node-red-agents)
+(OpenCode, `pi`) turn a `link in -> agent -> link out (return)` flow into a
+callable AI step, invoked like any other target — a JSON flow with an
+inline multiline prompt, in one command:
+
+```bash
+echo '{"payload":"Summarize this repo in one sentence.","cwd":"/repo"}' \
+  | node-red-cli --flow-json '[
+      {"id":"tab","type":"tab","label":"Agent"},
+      {"id":"ask","type":"link in","z":"tab","name":"ask","wires":[["agent"]]},
+      {"id":"agent","type":"agent","z":"tab","name":"opencode","agent":"opencode",
+       "runtime":"direct","prompt":"payload","promptType":"msg",
+       "cwd":"cwd","cwdType":"msg","wires":[["return"],[]]},
+      {"id":"return","type":"link out","z":"tab","name":"return","mode":"return"}
+    ]' ask --node-modules @tbrandenburg/node-red-agents --user-dir --timeout=120000 --format=json
+```
+
+The same flow runs sandboxed via `--docker <image>` against an image that
+already ships `opencode` + `node-red-agents`
+(e.g. `ghcr.io/tbrandenburg/agentic-workflow-dev-env`) — swap
+`--node-modules @tbrandenburg/node-red-agents --user-dir` for
+`--docker ghcr.io/tbrandenburg/agentic-workflow-dev-env:latest --node-modules @tbrandenburg/node-red-agents --user-dir`
+(network access via `--node-modules` is still required since the agent
+calls out to its own API).
 
 ## Host API 🛠️
 
