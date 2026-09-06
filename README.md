@@ -290,14 +290,20 @@ deterministic **named Docker volume** (derived from the `--user-dir` value)
 mounted inside the container, never a host bind mount — so "no stray host
 files" holds even for persistent installs.
 
-For images/derived images that pre-install Node-RED node packages into
-their own conventional userDir, setting the `NODE_RED_CLI_DEFAULT_USERDIR`
-environment variable (inside the image, e.g. via `ENV`) to that path lets
-`--docker` discover it automatically whenever `--user-dir` isn't given —
-that directory is used as `userDir` and, like an explicit `--user-dir`,
-never deleted afterward. If the path doesn't exist or isn't a directory,
-`--docker` logs a warning and falls back to the normal ephemeral `userDir`
-rather than failing the invocation.
+Without an explicit `--user-dir`, `--docker` also auto-probes the
+container's own `/data` for a userDir a community image already
+pre-populated with its own Node-RED node packages (e.g. the motivating
+[`ghcr.io/tbrandenburg/agentic-workflow-dev-env`](https://github.com/tbrandenburg/agentic-workflow-dev-env),
+which sets `NODE_RED_HOME=/data`) — validated by scanning `/data/node_modules`
+(including scoped `@scope/*` packages) for any `package.json` declaring a
+`"node-red"` key. This is inherently best-effort: an unrelated `/data` that
+happens to contain such a package is a (rare) false positive, and a real
+userDir laid out differently is a false negative that silently falls back
+to the ephemeral default. For a reliable, explicit alternative, pass
+`--docker-userdir <path>` to name the in-container directory directly —
+it takes precedence over the auto-probe (but is itself still overridden by
+an explicit `--user-dir`). Whichever wins, that directory is used as
+`userDir` and, like an explicit `--user-dir`, never deleted afterward.
 
 Fails fast with a clear `node-red-cli: docker unavailable: ...` error if
 the Docker CLI/daemon isn't reachable, or `node-red-cli: docker build
@@ -326,12 +332,11 @@ echo '{"payload":"Summarize this repo in one sentence.","cwd":"/repo"}' \
 
 The same flow runs sandboxed via `--docker <image>` against an image that
 already ships `opencode` + `node-red-agents`, e.g.
-[`ghcr.io/tbrandenburg/agentic-workflow-dev-env`](https://github.com/tbrandenburg/agentic-workflow-dev-env)
-(`--network` is required for network access, since the agent calls out to
-its own API; `--node-modules`/`--user-dir` are still required too, since
-Node-RED only discovers node types from a userDir it actually loaded, and
-`--docker` doesn't yet reuse an image's own pre-populated default userDir —
-see [#31](https://github.com/tbrandenburg/node-red-cli/issues/31)):
+[`ghcr.io/tbrandenburg/agentic-workflow-dev-env`](https://github.com/tbrandenburg/agentic-workflow-dev-env),
+which pre-installs its node packages into `/data` (`NODE_RED_HOME=/data`) —
+exactly the layout the `/data` auto-probe discovers automatically, with
+no `--node-modules`/`--user-dir` needed (`--network` is still required for
+network access, since the agent calls out to its own API):
 
 ```bash
 echo '{"payload":"Summarize this repo in one sentence.","cwd":"/repo"}' \
@@ -343,8 +348,7 @@ echo '{"payload":"Summarize this repo in one sentence.","cwd":"/repo"}' \
        "cwd":"cwd","cwdType":"msg","wires":[["return"],[]]},
       {"id":"return","type":"link out","z":"tab","name":"return","mode":"return"}
     ]' ask --docker ghcr.io/tbrandenburg/agentic-workflow-dev-env:latest \
-    --node-modules @tbrandenburg/node-red-agents --user-dir --network \
-    --timeout=120000 --format=json
+    --network --timeout=120000 --format=json
 ```
 
 ## Host API 🛠️

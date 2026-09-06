@@ -31,10 +31,12 @@ const { buildRunArgs } = require("../../src/docker-run");
 
 const REPO_ROOT = path.join(__dirname, "..", "..");
 const TEST_IMAGE = "node-red-cli-sandbox-integration-test:local";
-const DEFAULT_USERDIR_TEST_IMAGE = "node-red-cli-sandbox-default-userdir-test:local";
-const BAKED_USERDIR_PATH = "/opt/preinstalled-userdir";
-const BAKED_MODULE_NAME = "node-red-contrib-cli-issue-31-dummy";
-const BAKED_NODE_TYPE = "cli-issue-31-dummy";
+const DATA_PROBE_TEST_IMAGE = "node-red-cli-sandbox-data-probe-test:local";
+const DATA_PROBE_NEGATIVE_TEST_IMAGE = "node-red-cli-sandbox-data-probe-negative-test:local";
+const DOCKER_USERDIR_TEST_IMAGE = "node-red-cli-sandbox-docker-userdir-test:local";
+const DOCKER_USERDIR_PATH = "/opt/preinstalled-userdir";
+const BAKED_MODULE_NAME = "@test/cli-issue-33-dummy";
+const BAKED_NODE_TYPE = "cli-issue-33-dummy";
 
 function dockerAvailable() {
   const result = spawnSync("docker", ["info"], { stdio: ["ignore", "ignore", "ignore"] });
@@ -88,10 +90,8 @@ before(async function () {
     throw new Error(`failed to build the throwaway test image: ${build.stderr}`);
   }
 
-  // Second throwaway image (issue #31): derived from the same base, but also bakes
-  // a dummy Node-RED node module into a fixed path and sets
-  // NODE_RED_CLI_DEFAULT_USERDIR to it, simulating a community image that
-  // pre-installs node packages into its own conventional default userDir.
+  // Fake Node-RED node package module baked into each of the three
+  // throwaway images below (issue #33), shared as a single directory tree.
   const moduleDir = fs.mkdtempSync(path.join(os.tmpdir(), "node-red-cli-baked-module-"));
   fs.writeFileSync(
     path.join(moduleDir, "package.json"),
@@ -116,31 +116,78 @@ before(async function () {
     ].join("\n")
   );
 
-  const defaultUserDirDockerfile = [
+  // Image 1 (issue #33): bakes the module into /data/node_modules/@test/*,
+  // simulating a community image (like the motivating
+  // ghcr.io/tbrandenburg/agentic-workflow-dev-env) whose own conventional
+  // default userDir the /data auto-probe should discover, with no
+  // --user-dir/--docker-userdir/--node-modules given at all.
+  const dataProbeDockerfile = [
     `FROM ${TEST_IMAGE}`,
-    `RUN mkdir -p ${BAKED_USERDIR_PATH}/node_modules/${BAKED_MODULE_NAME}`,
-    `COPY baked-module/ ${BAKED_USERDIR_PATH}/node_modules/${BAKED_MODULE_NAME}/`,
-    `ENV NODE_RED_CLI_DEFAULT_USERDIR=${BAKED_USERDIR_PATH}`,
+    `RUN mkdir -p /data/node_modules/${BAKED_MODULE_NAME}`,
+    `COPY baked-module/ /data/node_modules/${BAKED_MODULE_NAME}/`,
     ""
   ].join("\n");
+  const dataProbeBuildDir = fs.mkdtempSync(path.join(os.tmpdir(), "node-red-cli-docker-data-probe-test-"));
+  fs.cpSync(moduleDir, path.join(dataProbeBuildDir, "baked-module"), { recursive: true });
+  fs.writeFileSync(path.join(dataProbeBuildDir, "Dockerfile"), dataProbeDockerfile);
 
-  const defaultUserDirBuildDir = fs.mkdtempSync(
-    path.join(os.tmpdir(), "node-red-cli-docker-default-userdir-test-")
+  const dataProbeBuild = spawnSync("docker", ["build", "-t", DATA_PROBE_TEST_IMAGE, dataProbeBuildDir], {
+    stdio: ["ignore", "pipe", "pipe"],
+    timeout: 5 * 60 * 1000
+  });
+  fs.rmSync(dataProbeBuildDir, { recursive: true, force: true });
+  if (dataProbeBuild.status !== 0) {
+    throw new Error(`failed to build the throwaway /data auto-probe test image: ${dataProbeBuild.stderr}`);
+  }
+
+  // Image 2 (issue #33): /data exists but contains no valid Node-RED
+  // package -- the auto-probe must reject it and fall through to the
+  // normal ephemeral default instead of misidentifying an unrelated /data.
+  const dataProbeNegativeDockerfile = [
+    `FROM ${TEST_IMAGE}`,
+    "RUN mkdir -p /data/node_modules/some-unrelated-package",
+    'RUN echo \'{"name":"some-unrelated-package"}\' > /data/node_modules/some-unrelated-package/package.json',
+    ""
+  ].join("\n");
+  const dataProbeNegativeBuildDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "node-red-cli-docker-data-probe-negative-test-")
   );
-  fs.cpSync(moduleDir, path.join(defaultUserDirBuildDir, "baked-module"), { recursive: true });
-  fs.writeFileSync(path.join(defaultUserDirBuildDir, "Dockerfile"), defaultUserDirDockerfile);
-  fs.rmSync(moduleDir, { recursive: true, force: true });
+  fs.writeFileSync(path.join(dataProbeNegativeBuildDir, "Dockerfile"), dataProbeNegativeDockerfile);
 
-  const defaultUserDirBuild = spawnSync(
+  const dataProbeNegativeBuild = spawnSync(
     "docker",
-    ["build", "-t", DEFAULT_USERDIR_TEST_IMAGE, defaultUserDirBuildDir],
+    ["build", "-t", DATA_PROBE_NEGATIVE_TEST_IMAGE, dataProbeNegativeBuildDir],
     { stdio: ["ignore", "pipe", "pipe"], timeout: 5 * 60 * 1000 }
   );
-  fs.rmSync(defaultUserDirBuildDir, { recursive: true, force: true });
-
-  if (defaultUserDirBuild.status !== 0) {
+  fs.rmSync(dataProbeNegativeBuildDir, { recursive: true, force: true });
+  if (dataProbeNegativeBuild.status !== 0) {
     throw new Error(
-      `failed to build the throwaway default-userdir test image: ${defaultUserDirBuild.stderr}`
+      `failed to build the throwaway /data auto-probe negative test image: ${dataProbeNegativeBuild.stderr}`
+    );
+  }
+
+  // Image 3 (issue #33): bakes the module into a non-/data path, exercising
+  // the explicit --docker-userdir override rather than the /data auto-probe.
+  const dockerUserDirDockerfile = [
+    `FROM ${TEST_IMAGE}`,
+    `RUN mkdir -p ${DOCKER_USERDIR_PATH}/node_modules/${BAKED_MODULE_NAME}`,
+    `COPY baked-module/ ${DOCKER_USERDIR_PATH}/node_modules/${BAKED_MODULE_NAME}/`,
+    ""
+  ].join("\n");
+  const dockerUserDirBuildDir = fs.mkdtempSync(path.join(os.tmpdir(), "node-red-cli-docker-userdir-test-"));
+  fs.cpSync(moduleDir, path.join(dockerUserDirBuildDir, "baked-module"), { recursive: true });
+  fs.writeFileSync(path.join(dockerUserDirBuildDir, "Dockerfile"), dockerUserDirDockerfile);
+  fs.rmSync(moduleDir, { recursive: true, force: true });
+
+  const dockerUserDirBuild = spawnSync(
+    "docker",
+    ["build", "-t", DOCKER_USERDIR_TEST_IMAGE, dockerUserDirBuildDir],
+    { stdio: ["ignore", "pipe", "pipe"], timeout: 5 * 60 * 1000 }
+  );
+  fs.rmSync(dockerUserDirBuildDir, { recursive: true, force: true });
+  if (dockerUserDirBuild.status !== 0) {
+    throw new Error(
+      `failed to build the throwaway --docker-userdir test image: ${dockerUserDirBuild.stderr}`
     );
   }
 });
@@ -148,7 +195,9 @@ before(async function () {
 after(() => {
   if (skip) return;
   spawnSync("docker", ["image", "rm", "-f", TEST_IMAGE], { stdio: "ignore" });
-  spawnSync("docker", ["image", "rm", "-f", DEFAULT_USERDIR_TEST_IMAGE], { stdio: "ignore" });
+  spawnSync("docker", ["image", "rm", "-f", DATA_PROBE_TEST_IMAGE], { stdio: "ignore" });
+  spawnSync("docker", ["image", "rm", "-f", DATA_PROBE_NEGATIVE_TEST_IMAGE], { stdio: "ignore" });
+  spawnSync("docker", ["image", "rm", "-f", DOCKER_USERDIR_TEST_IMAGE], { stdio: "ignore" });
 });
 
 test(
@@ -317,7 +366,7 @@ test("docker integration: --network alone (no --node-modules) enables network ac
 });
 
 test(
-  "docker integration: --docker <image with NODE_RED_CLI_DEFAULT_USERDIR> discovers the pre-baked module without --user-dir/--node-modules (issue #31)",
+  "docker integration: --docker <image with a valid /data node-red package> discovers it via the auto-probe, no flags needed (issue #33)",
   { skip },
   async () => {
     const flow = JSON.stringify([
@@ -327,7 +376,7 @@ test(
       { id: "return", type: "link out", z: "tab", name: "return", mode: "return" }
     ]);
     const { code, stdout, stderr } = await runCli(
-      ["--flow-json", flow, "ask", "--docker", DEFAULT_USERDIR_TEST_IMAGE, "--format=json"],
+      ["--flow-json", flow, "ask", "--docker", DATA_PROBE_TEST_IMAGE, "--format=json"],
       JSON.stringify({ payload: "hi" })
     );
 
@@ -337,10 +386,64 @@ test(
 );
 
 test(
-  "docker integration: explicit --user-dir takes precedence over NODE_RED_CLI_DEFAULT_USERDIR (the pre-baked module is not used)",
+  "docker integration: --docker <image with an invalid /data> falls through to the ephemeral default (issue #33)",
   { skip },
   async () => {
-    const userDir = fs.mkdtempSync(path.join(os.tmpdir(), "node-red-cli-docker-default-userdir-precedence-"));
+    const flowsPath = path.join(REPO_ROOT, "test", "fixtures", "single-link-in.flows.json");
+    const { code, stdout, stderr } = await runCli(
+      [
+        flowsPath,
+        "calculate",
+        "--docker",
+        DATA_PROBE_NEGATIVE_TEST_IMAGE,
+        "--set",
+        "x=4",
+        "--set",
+        "y=5",
+        "--format=json"
+      ],
+      ""
+    );
+
+    assert.equal(code, 0, stderr);
+    assert.equal(JSON.parse(stdout).payload, 9);
+  }
+);
+
+test(
+  "docker integration: --docker-userdir <path> discovers a pre-baked module at a non-/data path (issue #33)",
+  { skip },
+  async () => {
+    const flow = JSON.stringify([
+      { id: "tab", type: "tab", label: "t" },
+      { id: "ask", type: "link in", z: "tab", name: "ask", wires: [["dummy"]] },
+      { id: "dummy", type: BAKED_NODE_TYPE, z: "tab", name: "d", wires: [["return"]] },
+      { id: "return", type: "link out", z: "tab", name: "return", mode: "return" }
+    ]);
+    const { code, stdout, stderr } = await runCli(
+      [
+        "--flow-json",
+        flow,
+        "ask",
+        "--docker",
+        DOCKER_USERDIR_TEST_IMAGE,
+        "--docker-userdir",
+        DOCKER_USERDIR_PATH,
+        "--format=json"
+      ],
+      JSON.stringify({ payload: "hi" })
+    );
+
+    assert.equal(code, 0, stderr);
+    assert.deepEqual(JSON.parse(stdout).payload, "hi");
+  }
+);
+
+test(
+  "docker integration: explicit --user-dir takes precedence over --docker-userdir (the pre-baked module is not used)",
+  { skip },
+  async () => {
+    const userDir = fs.mkdtempSync(path.join(os.tmpdir(), "node-red-cli-docker-userdir-precedence-"));
     fs.rmSync(userDir, { recursive: true, force: true }); // deterministic never-used path for volume naming
     const flow = JSON.stringify([
       { id: "tab", type: "tab", label: "t" },
@@ -354,7 +457,9 @@ test(
         flow,
         "ask",
         "--docker",
-        DEFAULT_USERDIR_TEST_IMAGE,
+        DOCKER_USERDIR_TEST_IMAGE,
+        "--docker-userdir",
+        DOCKER_USERDIR_PATH,
         "--user-dir",
         userDir,
         "--format=json"
