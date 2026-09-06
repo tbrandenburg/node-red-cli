@@ -87,9 +87,16 @@ function derivedDockerfile(image, version) {
   // The derived image is left running as root - restoring the original
   // image's default user would require inspecting the base image at build
   // time, which is out of scope here.
+  //
+  // Force the npm global prefix to /usr/local regardless of what the base
+  // image's own NPM_CONFIG_PREFIX/.npmrc sets: SANDBOX_ENTRY_PATH is
+  // hardcoded to /usr/local, so an install that lands elsewhere would
+  // silently succeed at build time but fail with MODULE_NOT_FOUND at
+  // `docker run`.
   return [
     `FROM ${image}`,
     "USER root",
+    "ENV NPM_CONFIG_PREFIX=/usr/local",
     `RUN npm install -g @tbrandenburg/node-red-cli@${version}`,
     `ENTRYPOINT ["node", "${SANDBOX_ENTRY_PATH}"]`,
     ""
