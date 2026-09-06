@@ -81,8 +81,15 @@ function derivedTag(image, version) {
 }
 
 function derivedDockerfile(image, version) {
+  // Switch to root before the global npm install: many community/base
+  // images set a non-root default USER (e.g. `node`), which lacks write
+  // access to the global npm prefix and would otherwise fail with EACCES.
+  // The derived image is left running as root - restoring the original
+  // image's default user would require inspecting the base image at build
+  // time, which is out of scope here.
   return [
     `FROM ${image}`,
+    "USER root",
     `RUN npm install -g @tbrandenburg/node-red-cli@${version}`,
     `ENTRYPOINT ["node", "${SANDBOX_ENTRY_PATH}"]`,
     ""

@@ -105,6 +105,11 @@ test("unit: resolveImage installs node-red-cli into a derived image when an expl
   assert.match(dockerfileContent, /FROM my-registry\/my-image:latest/);
   assert.match(dockerfileContent, /npm install -g @tbrandenburg\/node-red-cli@1\.2\.3/);
   assert.match(dockerfileContent, /ENTRYPOINT/);
+  assert.match(
+    dockerfileContent,
+    /USER root\nRUN npm install -g @tbrandenburg\/node-red-cli@1\.2\.3/,
+    "USER root must appear immediately before the global npm install so non-root base images don't hit EACCES"
+  );
 });
 
 test("unit: resolveImage skips the derived build when it's already cached for that image+version", async () => {
