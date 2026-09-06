@@ -314,12 +314,23 @@ echo '{"payload":"Summarize this repo in one sentence.","cwd":"/repo"}' \
 ```
 
 The same flow runs sandboxed via `--docker <image>` against an image that
-already ships `opencode` + `node-red-agents`
-(e.g. `ghcr.io/tbrandenburg/agentic-workflow-dev-env`) — swap
-`--node-modules @tbrandenburg/node-red-agents --user-dir` for
-`--docker ghcr.io/tbrandenburg/agentic-workflow-dev-env:latest --node-modules @tbrandenburg/node-red-agents --user-dir`
-(network access via `--node-modules` is still required since the agent
-calls out to its own API).
+already ships `opencode` + `node-red-agents`, e.g.
+[`ghcr.io/tbrandenburg/agentic-workflow-dev-env`](https://github.com/tbrandenburg/agentic-workflow-dev-env)
+(`--node-modules` is still required for network access, since the agent
+calls out to its own API):
+
+```bash
+echo '{"payload":"Summarize this repo in one sentence.","cwd":"/repo"}' \
+  | node-red-cli --flow-json '[
+      {"id":"tab","type":"tab","label":"Agent"},
+      {"id":"ask","type":"link in","z":"tab","name":"ask","wires":[["agent"]]},
+      {"id":"agent","type":"agent","z":"tab","name":"opencode","agent":"opencode",
+       "runtime":"direct","prompt":"payload","promptType":"msg",
+       "cwd":"cwd","cwdType":"msg","wires":[["return"],[]]},
+      {"id":"return","type":"link out","z":"tab","name":"return","mode":"return"}
+    ]' ask --docker ghcr.io/tbrandenburg/agentic-workflow-dev-env:latest \
+    --node-modules @tbrandenburg/node-red-agents --user-dir --timeout=120000 --format=json
+```
 
 ## Host API 🛠️
 
