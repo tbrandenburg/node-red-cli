@@ -225,15 +225,27 @@ test("e2e: neither <flows.json> nor --flow-json given fails with a clear error",
   assert.match(stderr, /either <flows\.json> or --flow-json must be given/);
 });
 
+// Other test files running concurrently under `node --test` create their own
+// os.tmpdir() entries prefixed with "node-red-cli-" (e.g. this file's own
+// module-level userDir fixture, and test/integration/node-modules.integration.test.js's
+// real npm-install fixtures). Those are unrelated to the CLI invocation under test here
+// and must not be mistaken for a leak caused by it. See issue #26.
+const unrelatedTmpPrefixes = ["node-red-cli-e2e-", "node-red-cli-nm-integration-"];
+const isUnrelatedTmpEntry = (name) => unrelatedTmpPrefixes.some((prefix) => name.startsWith(prefix));
+
 test("e2e: --flow-json never writes a temp flow file to disk", async () => {
-  const tmpBefore = fs.readdirSync(os.tmpdir()).filter((name) => name.startsWith("node-red-cli-"));
+  const tmpBefore = fs
+    .readdirSync(os.tmpdir())
+    .filter((name) => name.startsWith("node-red-cli-") && !isUnrelatedTmpEntry(name));
   const { code, stderr } = await runCli(
     ["--flow-json", `@${flowsPath}`, "calculate"],
     JSON.stringify({ payload: { x: 4, y: 5 } })
   );
   assert.equal(code, 0, stderr);
 
-  const tmpAfter = fs.readdirSync(os.tmpdir()).filter((name) => name.startsWith("node-red-cli-"));
+  const tmpAfter = fs
+    .readdirSync(os.tmpdir())
+    .filter((name) => name.startsWith("node-red-cli-") && !isUnrelatedTmpEntry(name));
   assert.deepEqual(
     tmpAfter.filter((name) => !tmpBefore.includes(name)),
     [],
