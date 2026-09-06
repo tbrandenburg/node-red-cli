@@ -107,8 +107,8 @@ test("unit: resolveImage installs node-red-cli into a derived image when an expl
   assert.match(dockerfileContent, /ENTRYPOINT/);
   assert.match(
     dockerfileContent,
-    /USER root\nRUN npm install -g @tbrandenburg\/node-red-cli@1\.2\.3/,
-    "USER root must appear immediately before the global npm install so non-root base images don't hit EACCES"
+    /USER root\nENV NPM_CONFIG_PREFIX=\/usr\/local\nRUN npm install -g @tbrandenburg\/node-red-cli@1\.2\.3/,
+    "ENV NPM_CONFIG_PREFIX=/usr/local must appear between USER root and the global npm install so the install always lands under SANDBOX_ENTRY_PATH regardless of the base image's own npm prefix config"
   );
 });
 
