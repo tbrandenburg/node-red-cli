@@ -215,6 +215,46 @@ test(
   }
 );
 
+test(
+  "docker integration: --docker <image> --network works without --node-modules/--user-dir",
+  { skip },
+  async () => {
+    const flowsPath = path.join(REPO_ROOT, "test", "fixtures", "single-link-in.flows.json");
+    const { code, stdout, stderr } = await runCli(
+      [flowsPath, "calculate", "--docker", TEST_IMAGE, "--network", "--set", "x=4", "--set", "y=5"],
+      ""
+    );
+
+    assert.equal(code, 0, stderr);
+    assert.equal(stdout.trim(), "9");
+  }
+);
+
+test("docker integration: --network alone (no --node-modules) enables network access", { skip }, async () => {
+  // Probe the container directly with the exact flags buildRunArgs() produces
+  // for `--docker --network` (no --node-modules). Rather than depending on
+  // real internet egress (flaky in restricted CI), check for the presence
+  // of a non-loopback network interface: `--network none` strips every
+  // interface but `lo`, while a real network mode always has at least one.
+  const args = buildRunArgs(TEST_IMAGE, { networkNeeded: true });
+  const imageIndex = args.indexOf(TEST_IMAGE);
+  const runArgs = [
+    ...args.slice(0, imageIndex),
+    "--entrypoint",
+    "node",
+    TEST_IMAGE,
+    "-e",
+    "console.log(Object.keys(require('os').networkInterfaces()).filter((n) => n !== 'lo').length)"
+  ];
+
+  const result = spawnSync("docker", runArgs, { encoding: "utf8", timeout: 15000 });
+  assert.equal(result.status, 0, result.stderr);
+  assert.ok(
+    Number(result.stdout.trim()) > 0,
+    `expected networkNeeded (as set by --network) to attach a non-loopback interface, got: ${result.stdout}`
+  );
+});
+
 test("docker integration: an unreachable Docker daemon fails fast with a clear 'docker unavailable' error", async () => {
   const flowsPath = path.join(REPO_ROOT, "test", "fixtures", "single-link-in.flows.json");
   const { code, stdout, stderr } = await runCli([flowsPath, "calculate", "--docker"], "", {
