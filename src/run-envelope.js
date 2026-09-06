@@ -35,6 +35,48 @@ function stderrLogHandler() {
 }
 
 /**
+ * Waits for Node-RED to finish attempting to start the deployed flows.
+ *
+ * `RED.start()` resolves as soon as the runtime itself has booted, but the
+ * actual flow deploy happens asynchronously afterward and normally signals
+ * completion via a one-off `flows:started` event. However, when the flow
+ * references a node type that isn't registered (or another deploy-blocking
+ * condition applies, e.g. missing external modules or safe mode), Node-RED's
+ * `Flow.start()` logs the problem and returns *without* ever emitting
+ * `flows:started` (see `@node-red/runtime/lib/flows/index.js`). Awaiting
+ * only `flows:started` would then hang forever; since nothing else keeps
+ * the event loop alive, the process exits silently with code 0 once the
+ * loop drains, abandoning the pending call.
+ *
+ * Node-RED does always emit a `runtime-event` with id `runtime-state` in
+ * both cases: `payload.state === "start"` on success, and
+ * `payload.state === "stop"` / `"safe"` on any of the early-return failure
+ * paths. Racing both events lets us return as soon as Node-RED has settled
+ * either way; if the flows never actually started, the target/return nodes
+ * simply won't be instantiated and the existing preflight validation in
+ * `createHostLinkCaller` reports the real, specific error instead.
+ */
+function waitForFlowsSettled(RED) {
+  return new Promise((resolve) => {
+    const onStarted = () => {
+      RED.events.removeListener("runtime-event", onRuntimeEvent);
+      resolve();
+    };
+    const onRuntimeEvent = (event) => {
+      if (
+        event?.id === "runtime-state" &&
+        (event.payload?.state === "stop" || event.payload?.state === "safe")
+      ) {
+        RED.events.removeListener("flows:started", onStarted);
+        resolve();
+      }
+    };
+    RED.events.once("flows:started", onStarted);
+    RED.events.on("runtime-event", onRuntimeEvent);
+  });
+}
+
+/**
  * Runs a single link-call invocation against a real, freshly booted
  * Node-RED runtime: installs any missing `--node-modules`, boots RED with
  * either an in-memory flow array (`flow`) or a flow file path (`flowFile`),
@@ -80,9 +122,9 @@ async function runFlowInvocation({ flow, flowFile, msg, options }) {
     });
 
     try {
-      const flowsStarted = new Promise((resolve) => RED.events.once("flows:started", resolve));
+      const flowsSettled = waitForFlowsSettled(RED);
       await RED.start();
-      await flowsStarted;
+      await flowsSettled;
 
       caller = createHostLinkCaller(RED);
       const result = await caller.call(target, msg, {

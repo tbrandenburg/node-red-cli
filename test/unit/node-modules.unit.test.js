@@ -11,7 +11,8 @@ const {
   defaultCacheDir,
   isDenied
 } = require("../../src/node-modules");
-const { isModuleInstalled, diffMissingModules } = require("../../src/node-modules-install");
+const childProcess = require("node:child_process");
+const { isModuleInstalled, diffMissingModules, npmInstall } = require("../../src/node-modules-install");
 
 test("unit: parseNodeModulesParam parses a single name without version", () => {
   assert.deepEqual(parseNodeModulesParam(["foo"]), [{ name: "foo", version: undefined }]);
@@ -148,6 +149,33 @@ test("unit: diffMissingModules only returns modules that are missing/inconsisten
   ];
   assert.deepEqual(diffMissingModules(userDir, modules), [{ name: "not-there", version: undefined }]);
   fs.rmSync(userDir, { recursive: true, force: true });
+});
+
+test("unit: npmInstall passes --prefix <userDir> so npm can't escape to an ancestor node_modules (issue #24)", async (t) => {
+  const parentDir = fs.mkdtempSync(path.join(os.tmpdir(), "node-red-cli-nm-parent-"));
+  fs.mkdirSync(path.join(parentDir, "node_modules"), { recursive: true });
+  const userDir = path.join(parentDir, "userDir");
+  fs.mkdirSync(userDir, { recursive: true });
+
+  let capturedArgs;
+  let capturedOptions;
+  const original = childProcess.execFile;
+  childProcess.execFile = (command, args, options, callback) => {
+    capturedArgs = args;
+    capturedOptions = options;
+    callback(null, "", "");
+  };
+  t.after(() => {
+    childProcess.execFile = original;
+    fs.rmSync(parentDir, { recursive: true, force: true });
+  });
+
+  await npmInstall(userDir, { name: "some-pkg", version: undefined });
+
+  const prefixIndex = capturedArgs.indexOf("--prefix");
+  assert.ok(prefixIndex !== -1, "expected --prefix flag to be passed");
+  assert.equal(capturedArgs[prefixIndex + 1], userDir);
+  assert.equal(capturedOptions.cwd, userDir);
 });
 
 test("unit: resolveUserDir returns undefined when --user-dir wasn't given (ephemeral mode preserved)", () => {

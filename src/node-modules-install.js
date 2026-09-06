@@ -74,7 +74,13 @@ function checkNpmAvailable() {
   });
 }
 
-/** Runs `npm install <name>[@version]` into `userDir`, returns on success, throws a clear error otherwise. */
+/**
+ * Runs `npm install <name>[@version]` into `userDir`, returns on success,
+ * throws a clear error otherwise. Passes an explicit `--prefix <userDir>`
+ * so npm's own project-root/workspace detection can't walk up to an
+ * ancestor directory's `node_modules` when `userDir` is fresh/empty
+ * (see issue #24); `cwd` is kept as-is for the npm CLI invocation itself.
+ */
 function npmInstall(userDir, { name, version }, timeoutMs = 5 * 60 * 1000) {
   const installName = version ? `${name}@${version}` : name;
   const args = [
@@ -85,6 +91,8 @@ function npmInstall(userDir, { name, version }, timeoutMs = 5 * 60 * 1000) {
     "--no-fund",
     "--save",
     "--omit=dev",
+    "--prefix",
+    userDir,
     "--",
     installName
   ];
@@ -144,5 +152,6 @@ module.exports = {
   isModuleInstalled,
   diffMissingModules,
   installMissingNodeModules,
-  checkNpmAvailable
+  checkNpmAvailable,
+  npmInstall
 };
