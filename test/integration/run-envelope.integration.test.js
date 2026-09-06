@@ -87,3 +87,64 @@ test("integration: runFlowInvocation deploys and calls a flow whose nodes omit e
   });
   assert.deepEqual(JSON.parse(result.output).payload, "hi");
 });
+
+/**
+ * Integration coverage for issue #31: `NODE_RED_CLI_DEFAULT_USERDIR` lets a
+ * Docker image's own pre-populated default userDir be discovered by
+ * `runFlowInvocation` when `--user-dir` isn't given. Exercised against the
+ * real embedded Node-RED runtime since `runFlowInvocation` boots one
+ * directly; not feasibly unit-testable against a fake runtime.
+ */
+const ENV_VAR = "NODE_RED_CLI_DEFAULT_USERDIR";
+
+test("integration: runFlowInvocation uses NODE_RED_CLI_DEFAULT_USERDIR as userDir and never removes it", async () => {
+  const originalEnvValue = process.env[ENV_VAR];
+  const defaultUserDir = fs.mkdtempSync(path.join(os.tmpdir(), "node-red-cli-default-userdir-"));
+  const markerFile = path.join(defaultUserDir, "marker.txt");
+  fs.writeFileSync(markerFile, "keep-me");
+  process.env[ENV_VAR] = defaultUserDir;
+
+  try {
+    const result = await runFlowInvocation({
+      flow: SELF_NAMED_LINK_FLOW,
+      msg: { payload: "hi" },
+      options: { target: "ask", timeoutMs: 5000, format: "json" }
+    });
+    assert.deepEqual(JSON.parse(result.output).payload, "hi");
+    assert.equal(fs.existsSync(defaultUserDir), true);
+    assert.equal(fs.readFileSync(markerFile, "utf8"), "keep-me");
+  } finally {
+    if (originalEnvValue === undefined) {
+      delete process.env[ENV_VAR];
+    } else {
+      process.env[ENV_VAR] = originalEnvValue;
+    }
+    fs.rmSync(defaultUserDir, { recursive: true, force: true });
+  }
+});
+
+test("integration: explicit userDir takes precedence over NODE_RED_CLI_DEFAULT_USERDIR", async () => {
+  const originalEnvValue = process.env[ENV_VAR];
+  const defaultUserDir = fs.mkdtempSync(path.join(os.tmpdir(), "node-red-cli-default-userdir-"));
+  const explicitUserDir = fs.mkdtempSync(path.join(os.tmpdir(), "node-red-cli-explicit-userdir-"));
+  process.env[ENV_VAR] = defaultUserDir;
+
+  try {
+    const result = await runFlowInvocation({
+      flow: SELF_NAMED_LINK_FLOW,
+      msg: { payload: "hi" },
+      options: { target: "ask", timeoutMs: 5000, format: "json", userDir: explicitUserDir }
+    });
+    assert.deepEqual(JSON.parse(result.output).payload, "hi");
+    // The default userDir must be left untouched -- proof it was never loaded.
+    assert.deepEqual(fs.readdirSync(defaultUserDir), []);
+  } finally {
+    if (originalEnvValue === undefined) {
+      delete process.env[ENV_VAR];
+    } else {
+      process.env[ENV_VAR] = originalEnvValue;
+    }
+    fs.rmSync(defaultUserDir, { recursive: true, force: true });
+    fs.rmSync(explicitUserDir, { recursive: true, force: true });
+  }
+});

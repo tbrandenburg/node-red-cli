@@ -31,6 +31,10 @@ const { buildRunArgs } = require("../../src/docker-run");
 
 const REPO_ROOT = path.join(__dirname, "..", "..");
 const TEST_IMAGE = "node-red-cli-sandbox-integration-test:local";
+const DEFAULT_USERDIR_TEST_IMAGE = "node-red-cli-sandbox-default-userdir-test:local";
+const BAKED_USERDIR_PATH = "/opt/preinstalled-userdir";
+const BAKED_MODULE_NAME = "node-red-contrib-cli-issue-31-dummy";
+const BAKED_NODE_TYPE = "cli-issue-31-dummy";
 
 function dockerAvailable() {
   const result = spawnSync("docker", ["info"], { stdio: ["ignore", "ignore", "ignore"] });
@@ -83,11 +87,68 @@ before(async function () {
   if (build.status !== 0) {
     throw new Error(`failed to build the throwaway test image: ${build.stderr}`);
   }
+
+  // Second throwaway image (issue #31): derived from the same base, but also bakes
+  // a dummy Node-RED node module into a fixed path and sets
+  // NODE_RED_CLI_DEFAULT_USERDIR to it, simulating a community image that
+  // pre-installs node packages into its own conventional default userDir.
+  const moduleDir = fs.mkdtempSync(path.join(os.tmpdir(), "node-red-cli-baked-module-"));
+  fs.writeFileSync(
+    path.join(moduleDir, "package.json"),
+    JSON.stringify({
+      name: BAKED_MODULE_NAME,
+      version: "1.0.0",
+      "node-red": { nodes: { dummy: "index.js" } }
+    })
+  );
+  fs.writeFileSync(
+    path.join(moduleDir, "index.js"),
+    [
+      "module.exports = function (RED) {",
+      "  function DummyNode(config) {",
+      "    RED.nodes.createNode(this, config);",
+      "    const node = this;",
+      "    node.on('input', function (msg) { node.send(msg); });",
+      "  }",
+      `  RED.nodes.registerType(${JSON.stringify(BAKED_NODE_TYPE)}, DummyNode);`,
+      "};",
+      ""
+    ].join("\n")
+  );
+
+  const defaultUserDirDockerfile = [
+    `FROM ${TEST_IMAGE}`,
+    `RUN mkdir -p ${BAKED_USERDIR_PATH}/node_modules/${BAKED_MODULE_NAME}`,
+    `COPY baked-module/ ${BAKED_USERDIR_PATH}/node_modules/${BAKED_MODULE_NAME}/`,
+    `ENV NODE_RED_CLI_DEFAULT_USERDIR=${BAKED_USERDIR_PATH}`,
+    ""
+  ].join("\n");
+
+  const defaultUserDirBuildDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "node-red-cli-docker-default-userdir-test-")
+  );
+  fs.cpSync(moduleDir, path.join(defaultUserDirBuildDir, "baked-module"), { recursive: true });
+  fs.writeFileSync(path.join(defaultUserDirBuildDir, "Dockerfile"), defaultUserDirDockerfile);
+  fs.rmSync(moduleDir, { recursive: true, force: true });
+
+  const defaultUserDirBuild = spawnSync(
+    "docker",
+    ["build", "-t", DEFAULT_USERDIR_TEST_IMAGE, defaultUserDirBuildDir],
+    { stdio: ["ignore", "pipe", "pipe"], timeout: 5 * 60 * 1000 }
+  );
+  fs.rmSync(defaultUserDirBuildDir, { recursive: true, force: true });
+
+  if (defaultUserDirBuild.status !== 0) {
+    throw new Error(
+      `failed to build the throwaway default-userdir test image: ${defaultUserDirBuild.stderr}`
+    );
+  }
 });
 
 after(() => {
   if (skip) return;
   spawnSync("docker", ["image", "rm", "-f", TEST_IMAGE], { stdio: "ignore" });
+  spawnSync("docker", ["image", "rm", "-f", DEFAULT_USERDIR_TEST_IMAGE], { stdio: "ignore" });
 });
 
 test(
@@ -254,6 +315,58 @@ test("docker integration: --network alone (no --node-modules) enables network ac
     `expected networkNeeded (as set by --network) to attach a non-loopback interface, got: ${result.stdout}`
   );
 });
+
+test(
+  "docker integration: --docker <image with NODE_RED_CLI_DEFAULT_USERDIR> discovers the pre-baked module without --user-dir/--node-modules (issue #31)",
+  { skip },
+  async () => {
+    const flow = JSON.stringify([
+      { id: "tab", type: "tab", label: "t" },
+      { id: "ask", type: "link in", z: "tab", name: "ask", wires: [["dummy"]] },
+      { id: "dummy", type: BAKED_NODE_TYPE, z: "tab", name: "d", wires: [["return"]] },
+      { id: "return", type: "link out", z: "tab", name: "return", mode: "return" }
+    ]);
+    const { code, stdout, stderr } = await runCli(
+      ["--flow-json", flow, "ask", "--docker", DEFAULT_USERDIR_TEST_IMAGE, "--format=json"],
+      JSON.stringify({ payload: "hi" })
+    );
+
+    assert.equal(code, 0, stderr);
+    assert.deepEqual(JSON.parse(stdout).payload, "hi");
+  }
+);
+
+test(
+  "docker integration: explicit --user-dir takes precedence over NODE_RED_CLI_DEFAULT_USERDIR (the pre-baked module is not used)",
+  { skip },
+  async () => {
+    const userDir = fs.mkdtempSync(path.join(os.tmpdir(), "node-red-cli-docker-default-userdir-precedence-"));
+    fs.rmSync(userDir, { recursive: true, force: true }); // deterministic never-used path for volume naming
+    const flow = JSON.stringify([
+      { id: "tab", type: "tab", label: "t" },
+      { id: "ask", type: "link in", z: "tab", name: "ask", wires: [["dummy"]] },
+      { id: "dummy", type: BAKED_NODE_TYPE, z: "tab", name: "d", wires: [["return"]] },
+      { id: "return", type: "link out", z: "tab", name: "return", mode: "return" }
+    ]);
+    const { code, stdout, stderr } = await runCli(
+      [
+        "--flow-json",
+        flow,
+        "ask",
+        "--docker",
+        DEFAULT_USERDIR_TEST_IMAGE,
+        "--user-dir",
+        userDir,
+        "--format=json"
+      ],
+      JSON.stringify({ payload: "hi" })
+    );
+
+    assert.notEqual(code, 0);
+    assert.equal(stdout, "");
+    assert.match(stderr, /not instantiated in the runtime/);
+  }
+);
 
 test("docker integration: an unreachable Docker daemon fails fast with a clear 'docker unavailable' error", async () => {
   const flowsPath = path.join(REPO_ROOT, "test", "fixtures", "single-link-in.flows.json");

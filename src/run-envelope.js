@@ -133,6 +133,34 @@ function waitForFlowsSettled(RED) {
 }
 
 /**
+ * Resolves the image/host-provided default `userDir` from the
+ * `NODE_RED_CLI_DEFAULT_USERDIR` environment variable (see #31): community
+ * Docker images that pre-install Node-RED node packages into their own
+ * conventional userDir can set this variable so `--docker` (without an
+ * explicit `--user-dir`) discovers it automatically. Returns `undefined` if
+ * unset. Fails open, not closed: if the path doesn't exist, isn't a
+ * directory, or isn't accessible, logs a one-line stderr warning and returns
+ * `undefined` so the caller falls back to its normal ephemeral tmpdir,
+ * rather than aborting the invocation.
+ */
+function resolveDefaultUserDir() {
+  const configuredPath = process.env.NODE_RED_CLI_DEFAULT_USERDIR;
+  if (!configuredPath) return undefined;
+
+  try {
+    if (fs.statSync(configuredPath).isDirectory()) return configuredPath;
+    console.error(
+      `node-red-cli: NODE_RED_CLI_DEFAULT_USERDIR='${configuredPath}' is not usable (not a directory), falling back to an ephemeral userDir`
+    );
+  } catch (error) {
+    console.error(
+      `node-red-cli: NODE_RED_CLI_DEFAULT_USERDIR='${configuredPath}' is not usable (${error.message}), falling back to an ephemeral userDir`
+    );
+  }
+  return undefined;
+}
+
+/**
  * Runs a single link-call invocation against a real, freshly booted
  * Node-RED runtime: installs any missing `--node-modules`, boots RED with
  * either an in-memory flow array (`flow`) or a flow file path (`flowFile`),
@@ -146,8 +174,13 @@ function waitForFlowsSettled(RED) {
  *
  * `options.userDir`, when set, is treated as a persistent directory and is
  * never removed afterward (host: an explicit `--user-dir`; container: the
- * fixed mount path of a named Docker volume). When omitted, an ephemeral
- * tmpdir is created and removed again after the call.
+ * fixed mount path of a named Docker volume). When omitted, and the
+ * `NODE_RED_CLI_DEFAULT_USERDIR` environment variable points at an existing
+ * directory (see `resolveDefaultUserDir`), that directory is used instead —
+ * also treated as persistent and never removed afterward, letting a Docker
+ * image's own pre-populated default userDir be discovered automatically
+ * (see #31). Otherwise an ephemeral tmpdir is created and removed again
+ * after the call.
  */
 async function runFlowInvocation({ flow, flowFile, msg, options }) {
   const {
@@ -160,7 +193,10 @@ async function runFlowInvocation({ flow, flowFile, msg, options }) {
   } = options;
 
   const persistentUserDir = Boolean(fixedUserDir);
-  const userDir = fixedUserDir || fs.mkdtempSync(path.join(os.tmpdir(), "node-red-cli-"));
+  const imageDefaultUserDir = !persistentUserDir ? resolveDefaultUserDir() : undefined;
+  const userDir =
+    fixedUserDir || imageDefaultUserDir || fs.mkdtempSync(path.join(os.tmpdir(), "node-red-cli-"));
+  const managedUserDir = !persistentUserDir && !imageDefaultUserDir;
 
   try {
     if (nodeModules.length > 0) {
@@ -194,8 +230,8 @@ async function runFlowInvocation({ flow, flowFile, msg, options }) {
       await RED.stop();
     }
   } finally {
-    if (!persistentUserDir) fs.rmSync(userDir, { recursive: true, force: true });
+    if (managedUserDir) fs.rmSync(userDir, { recursive: true, force: true });
   }
 }
 
-module.exports = { runFlowInvocation, stderrLogHandler };
+module.exports = { runFlowInvocation, stderrLogHandler, resolveDefaultUserDir };

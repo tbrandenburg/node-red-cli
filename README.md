@@ -290,6 +290,15 @@ deterministic **named Docker volume** (derived from the `--user-dir` value)
 mounted inside the container, never a host bind mount — so "no stray host
 files" holds even for persistent installs.
 
+For images/derived images that pre-install Node-RED node packages into
+their own conventional userDir, setting the `NODE_RED_CLI_DEFAULT_USERDIR`
+environment variable (inside the image, e.g. via `ENV`) to that path lets
+`--docker` discover it automatically whenever `--user-dir` isn't given —
+that directory is used as `userDir` and, like an explicit `--user-dir`,
+never deleted afterward. If the path doesn't exist or isn't a directory,
+`--docker` logs a warning and falls back to the normal ephemeral `userDir`
+rather than failing the invocation.
+
 Fails fast with a clear `node-red-cli: docker unavailable: ...` error if
 the Docker CLI/daemon isn't reachable, or `node-red-cli: docker build
 failed: ...` if the image build fails (e.g. the local version isn't yet

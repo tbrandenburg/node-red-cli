@@ -7,6 +7,12 @@
  * envelope as JSON from stdin, runs it against a real Node-RED runtime via
  * the shared `runFlowInvocation` (the exact same logic the host CLI uses
  * for its non-Docker path), and writes the formatted result to stdout.
+ *
+ * The `NODE_RED_CLI_DEFAULT_USERDIR` env-var convention (see #31), which
+ * lets an image's own pre-populated default userDir be discovered when
+ * `--user-dir` isn't given, is resolved entirely inside the shared
+ * `runFlowInvocation` (`src/run-envelope.js`) -- nothing to do here beyond
+ * the existing pass-through of `envelope.options`.
  */
 
 const { runFlowInvocation } = require("../src/run-envelope");
