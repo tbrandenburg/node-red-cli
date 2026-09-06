@@ -4,12 +4,11 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { Command } = require("commander");
-const RED = require("node-red");
-const { createHostLinkCaller } = require("../src/link-call");
-const { createMemoryStorageModule } = require("../src/flow-storage");
-const { applySetParams, parseFlowJsonParam, parseFormatParam, formatPlain } = require("../src/cli-params");
+const { applySetParams, parseFlowJsonParam, parseFormatParam } = require("../src/cli-params");
 const { parseNodeModulesParam, resolveUserDir } = require("../src/node-modules");
-const { installMissingNodeModules } = require("../src/node-modules-install");
+const { runFlowInvocation } = require("../src/run-envelope");
+const { resolveImage } = require("../src/docker-image");
+const { runContainer, volumeNameFor, CONTAINER_USER_DIR } = require("../src/docker-run");
 const { version } = require("../package.json");
 
 const HELP_TEXT = [
@@ -58,37 +57,28 @@ const HELP_TEXT = [
   "`npm install`, i.e. arbitrary code execution from the configured npm",
   "registry - only use it with trusted module names.",
   "",
+  "--docker [value] re-executes the entire invocation (flow resolution,",
+  "link call, and any --node-modules install) inside a disposable, hardened",
+  "Docker container instead of the host process. Zero bind mounts, zero",
+  "leftover host files. <value> is one of:",
+  "  - omitted (bare flag): use/build a cached local image",
+  "    node-red-cli-sandbox:<installed version>, from node:24-slim + a",
+  "    global npm install of this package.",
+  "  - '<image[:tag]>': use an explicit image as-is.",
+  "  - '@<path>' or an http(s) URL: build from a Dockerfile (local file or",
+  "    fetched URL), cached by content hash.",
+  "Sandboxing defaults: --network none (unless --node-modules is also set,",
+  "which needs registry access), --read-only rootfs with a /tmp tmpfs,",
+  "--cap-drop=ALL, --security-opt=no-new-privileges. When combined with",
+  "--user-dir, persistence uses a named Docker volume, never a host bind",
+  "mount.",
+  "",
   "Example:",
   '  echo \'{"payload":{"x":4,"y":5}}\' | node-red-cli flows.json calculate',
   "",
   "Equivalent using --set instead of stdin:",
   "  node-red-cli flows.json calculate --set x=4 --set y=5 < /dev/null"
 ].join("\n");
-
-const LEVEL_NAMES = {
-  10: "fatal",
-  20: "error",
-  30: "warn",
-  40: "info",
-  50: "debug",
-  60: "trace",
-  98: "audit",
-  99: "metric"
-};
-
-/**
- * Node-RED's built-in console log handler always writes via console.log,
- * i.e. to stdout. That would corrupt the JSON result on stdout, so replace
- * it with a handler that writes to stderr instead.
- */
-function stderrLogHandler() {
-  return (msg) => {
-    const levelName = LEVEL_NAMES[msg.level] || msg.level;
-    const source = msg.type ? `[${msg.type}:${msg.name || msg.id}] ` : "";
-    const message = msg.msg && msg.msg.message ? msg.msg.message : msg.msg;
-    console.error(`node-red-cli: [${levelName}] ${source}${message}`);
-  };
-}
 
 function readStdin() {
   return new Promise((resolve, reject) => {
@@ -210,52 +200,66 @@ async function run(args, options) {
     return;
   }
 
-  const userDir =
-    persistentUserDir || fs.mkdtempSync(path.join(require("node:os").tmpdir(), "node-red-cli-"));
+  if (options.docker) {
+    if (!flows) {
+      try {
+        flows = JSON.parse(fs.readFileSync(flowFile, "utf8"));
+      } catch (error) {
+        console.error(`node-red-cli: could not read/parse flow file '${flowFile}': ${error.message}`);
+        process.exitCode = 1;
+        return;
+      }
+    }
 
-  if (nodeModules.length > 0) {
+    const volumeName = persistentUserDir ? volumeNameFor(persistentUserDir) : undefined;
+    const envelope = {
+      flow: flows,
+      msg,
+      options: {
+        target,
+        flow: options.flow,
+        timeoutMs: options.timeout,
+        format: options.format,
+        nodeModules,
+        userDir: volumeName ? CONTAINER_USER_DIR : undefined
+      }
+    };
+
+    let image;
+    let result;
     try {
-      await installMissingNodeModules(userDir, nodeModules);
+      image = await resolveImage(options.docker, { version });
+      result = await runContainer(image, envelope, { networkNeeded: nodeModules.length > 0, volumeName });
     } catch (error) {
-      console.error(`node-red-cli: ${error.message}`);
+      console.error(error.message);
       process.exitCode = 1;
-      if (!persistentUserDir) fs.rmSync(userDir, { recursive: true, force: true });
       return;
     }
+
+    if (result.stdout) process.stdout.write(result.stdout);
+    if (result.stderr) process.stderr.write(result.stderr);
+    process.exitCode = result.code ?? 1;
+    return;
   }
 
-  let caller;
-
-  RED.init({
-    ...(flows ? { storageModule: createMemoryStorageModule(flows) } : { flowFile }),
-    userDir,
-    httpAdminRoot: false,
-    httpNodeRoot: false,
-    editorTheme: { projects: { enabled: false } },
-    logging: { console: { level: "warn", metrics: false, audit: false, handler: stderrLogHandler } }
-  });
-
   try {
-    const flowsStarted = new Promise((resolve) => RED.events.once("flows:started", resolve));
-    await RED.start();
-    await flowsStarted;
-
-    caller = createHostLinkCaller(RED);
-    const result = await caller.call(target, msg, {
-      flow: options.flow,
-      timeout: options.timeout,
-      onWarning: (warning) => console.error(`node-red-cli: warning: ${warning}`)
+    const { output } = await runFlowInvocation({
+      flow: flows,
+      flowFile,
+      msg,
+      options: {
+        target,
+        flow: options.flow,
+        timeoutMs: options.timeout,
+        format: options.format,
+        nodeModules,
+        userDir: persistentUserDir
+      }
     });
-    process.stdout.write(
-      options.format === "plain" ? `${formatPlain(result.payload)}\n` : `${JSON.stringify(result)}\n`
-    );
+    process.stdout.write(`${output}\n`);
   } catch (error) {
     console.error(`node-red-cli: ${error.message}`);
     process.exitCode = 1;
-  } finally {
-    caller?.close();
-    await RED.stop();
-    if (!persistentUserDir) fs.rmSync(userDir, { recursive: true, force: true });
   }
 }
 
@@ -284,6 +288,11 @@ program
     "install missing Node-RED node npm package(s), comma-separated and/or repeatable; requires --user-dir",
     collectNodeModules,
     []
+  )
+  .option(
+    "--docker [value]",
+    "run the invocation sandboxed in a disposable Docker container; bare = cached default image, " +
+      "'<image[:tag]>' = explicit image, '@path'/URL = build from a Dockerfile"
   )
   .addHelpText("after", HELP_TEXT)
   .version(version, "-v, --version", "print the installed node-red-cli version and exit")
