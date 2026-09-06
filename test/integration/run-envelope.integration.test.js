@@ -49,3 +49,41 @@ test("integration: runFlowInvocation rejects with preflight error for an unregis
     fs.rmSync(userDir, { recursive: true, force: true });
   }
 });
+
+/**
+ * Regression coverage for issue #28: a v0.2.14 report that flows using the
+ * `agent` node (node-red-agents) deterministically fail with "Circular
+ * config node dependency" / "not instantiated", even though the flow is
+ * otherwise valid and deployed fine on v0.2.12/v0.2.13.
+ *
+ * Root cause (confirmed against the real `@tbrandenburg/node-red-agents`
+ * package, and reproducible with only core node types as below): Node-RED's
+ * flow parser (`@node-red/runtime/lib/flows/util.js`) classifies *any* node
+ * lacking both `x` and `y` as a global config node, regardless of its
+ * actual type -- and the README's own hand-authored `--flow-json` `agent`
+ * example (like this fixture) omits those editor-only coordinates. A wired
+ * node misclassified as a config node undergoes `Flow.js`'s config-node
+ * circular-dependency scan, which throws "Circular config node dependency
+ * detected" the moment one of its own property values happens to equal
+ * another node's id -- including its own id, e.g. a node whose `name`
+ * equals its own `id` (exactly what this fixture, and the README example,
+ * both do). That aborts the whole flow's instantiation, which is what
+ * previously made the *unrelated* `waitForFlowsSettled` race a prime
+ * suspect: the target/return nodes end up "not instantiated" either way.
+ * This flow is otherwise entirely valid and must deploy and succeed exactly
+ * as it did before v0.2.14.
+ */
+const SELF_NAMED_LINK_FLOW = [
+  { id: "tab", type: "tab", label: "t" },
+  { id: "ask", type: "link in", z: "tab", name: "ask", wires: [["return"]] },
+  { id: "return", type: "link out", z: "tab", name: "return", mode: "return" }
+];
+
+test("integration: runFlowInvocation deploys and calls a flow whose nodes omit editor x/y coordinates (issue #28)", async () => {
+  const result = await runFlowInvocation({
+    flow: SELF_NAMED_LINK_FLOW,
+    msg: { payload: "hi" },
+    options: { target: "ask", timeoutMs: 5000, format: "json" }
+  });
+  assert.deepEqual(JSON.parse(result.output).payload, "hi");
+});
