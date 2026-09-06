@@ -10,6 +10,8 @@
  * - `--rm -i` (always disposable, interactive stdin)
  * - `--network none`, unless `networkNeeded` (i.e. `--node-modules` is set)
  * - `--read-only` root filesystem + a `/tmp` tmpfs mount
+ * - `-e HOME=/tmp`, so tools needing a writable `$HOME` (config/cache dirs)
+ *   land on the writable `/tmp` tmpfs instead of the read-only rootfs
  * - `--cap-drop=ALL`
  * - `--security-opt=no-new-privileges`
  *
@@ -35,6 +37,7 @@ function buildRunArgs(image, { networkNeeded, volumeName }) {
   const args = ["run", "--rm", "-i"];
   if (!networkNeeded) args.push("--network", "none");
   args.push("--read-only", "--tmpfs", "/tmp", "--cap-drop=ALL", "--security-opt=no-new-privileges");
+  args.push("-e", "HOME=/tmp");
   if (networkNeeded) {
     // --node-modules runs a real `npm install`, which needs a writable cache
     // dir; point it at the /tmp tmpfs since the root filesystem is read-only.

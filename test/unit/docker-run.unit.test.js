@@ -45,6 +45,8 @@ test("unit: buildRunArgs applies --network none by default and sandboxing flags"
     "/tmp",
     "--cap-drop=ALL",
     "--security-opt=no-new-privileges",
+    "-e",
+    "HOME=/tmp",
     "some-image"
   ]);
 });
@@ -58,6 +60,7 @@ test("unit: buildRunArgs omits --network none when networkNeeded (e.g. --node-mo
     args.includes("npm_config_cache=/tmp/.npm-cache"),
     "npm cache must be redirected off the read-only rootfs"
   );
+  assert.ok(args.includes("HOME=/tmp"), "HOME must be redirected off the read-only rootfs");
 });
 
 test("unit: buildRunArgs mounts a named volume, never a bind mount, when volumeName is given", () => {
@@ -65,6 +68,7 @@ test("unit: buildRunArgs mounts a named volume, never a bind mount, when volumeN
   const volumeIndex = args.indexOf("-v");
   assert.ok(volumeIndex !== -1);
   assert.equal(args[volumeIndex + 1], `node-red-cli-userdir-abc:${CONTAINER_USER_DIR}`);
+  assert.ok(args.includes("HOME=/tmp"));
 });
 
 test("unit: volumeNameFor is deterministic for the same --user-dir path", () => {
