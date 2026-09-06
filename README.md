@@ -19,13 +19,36 @@ node-red-cli flows.json calculate --set x=4 --set y=5 < /dev/null
 This turns Node-RED from a visual automation tool into a reusable runtime
 building block for scripts, services, pipelines, and developer tooling. 🧩
 
+## Install 📦
+
+```bash
+npm install -g @tbrandenburg/node-red-cli
+```
+
+This installs the `node-red-cli` command globally, ready to use against any
+Node-RED flow file (see [Usage](#usage-) below).
+
+To build and run from a repo checkout instead (e.g. for contributing):
+
+```bash
+make install
+make test
+```
+
+`make install` also wires up a `pre-push` git hook that runs `make ci`
+(format, lint, and tests) automatically before every push. To use
+`node-red-cli` as a regular command from a repo checkout, install it
+globally from the local source:
+
+```bash
+make install-global
+```
+
 ## Table of contents
 
 - [The idea](#the-idea-)
 - [Why node-red-cli?](#why-node-red-cli-)
-- [Current state](#current-state-)
 - [Project layout](#project-layout-)
-- [Install](#install-)
 - [Usage](#usage-)
   - [Quick start](#quick-start)
   - [Passing flow JSON inline](#passing-flow-json-inline)
@@ -34,8 +57,6 @@ building block for scripts, services, pipelines, and developer tooling. 🧩
 - [Host API](#host-api-)
 - [Technical approach](#technical-approach-)
 - [Preflight and limitations](#preflight-and-limitations-)
-- [Roadmap](#roadmap-)
-- [Status](#status-)
 - [Contributing](#contributing-)
 - [Security](#security-)
 - [License](#license-)
@@ -77,25 +98,6 @@ no permanently deployed adapter structure. 🚫🔧
 - **Optional sandboxing:** `--docker` re-executes a call inside a disposable,
   hardened container instead of the host process.
 
-## Current state 🚧
-
-This repository provides an early-stage CLI and host-side adapter for
-Node-RED 5.0.4. The adapter invokes an existing `link in` node and captures
-the response from a `link out` node in return mode as a Promise.
-
-The included example flow (`test/fixtures/flows.json`) computes `x + y`:
-
-```text
-link in: calculate -> Function -> link out: return
-```
-
-The test suite (`test/e2e/flow.e2e.test.js`) verifies:
-
-1. ✅ A successful call returning `{ payload: 9 }`.
-2. ✅ Preflight validation rejecting an unknown target.
-3. ✅ A timeout when a flow doesn't respond in time.
-4. ✅ An unchanged SHA-256 hash of the flow file before and after the call.
-
 ## Project layout 📁
 
 ```text
@@ -105,31 +107,6 @@ test/unit/          Fast tests against a fake Node-RED runtime
 test/integration/   Adapter tests against a real embedded runtime
 test/e2e/           Full round trip through the example flow
 test/fixtures/      Example Node-RED flow used as a test asset
-```
-
-## Install 📦
-
-```bash
-npm install -g @tbrandenburg/node-red-cli
-```
-
-This installs the `node-red-cli` command globally, ready to use against any
-Node-RED flow file (see [Usage](#usage-) below).
-
-To build and run from a repo checkout instead (e.g. for contributing):
-
-```bash
-make install
-make test
-```
-
-`make install` also wires up a `pre-push` git hook that runs `make ci`
-(format, lint, and tests) automatically before every push. To use
-`node-red-cli` as a regular command from a repo checkout, install it
-globally from the local source:
-
-```bash
-make install-global
 ```
 
 ## Usage 🚀
@@ -384,38 +361,6 @@ Before a call, `validateTarget(RED, targetId)` checks:
 
 Validation does not prove that a flow terminates semantically or replies
 exactly once. A runtime timeout remains necessary for that.
-
-## Roadmap 🗺️
-
-The long-term goal is a stable, official host API in Node-RED core:
-
-```js
-const result = await callNodeRedFlow({
-  target: "calculate",
-  msg,
-  timeout: 5000
-});
-```
-
-Or as a runtime interface:
-
-```js
-const result = await RED.runtime.flows.call("calculate", msg, {
-  timeout: 5000
-});
-```
-
-The research focuses on which parts of the existing `node.linkcall()`
-implementation can be generalized, and what a small upstream API such as
-`RED.nodes.callLink()` or `RED.runtime.flows.call()` could look like.
-
-## Status 📊
-
-**Early-stage CLI:** the approach works for the included Node-RED 5.0.4
-example flow. The link-call internals used here are not stabilized as a
-public Node-RED API. Production use therefore requires deliberate version
-pinning, integration tests, and robust error handling for ambiguous or
-non-terminating flows.
 
 ## Contributing 🤝
 
