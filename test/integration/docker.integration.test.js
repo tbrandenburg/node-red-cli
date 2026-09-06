@@ -61,12 +61,12 @@ before(async function () {
 
   const dockerfile = [
     "FROM node:24-slim",
-    "WORKDIR /app",
+    "WORKDIR /usr/local/lib/node_modules/@tbrandenburg/node-red-cli",
     "COPY package.json package-lock.json ./",
     "RUN npm ci --omit=dev --no-audit --no-fund",
     "COPY bin ./bin",
     "COPY src ./src",
-    'ENTRYPOINT ["node", "/app/bin/node-red-cli-sandbox-entry.js"]',
+    'ENTRYPOINT ["node", "/usr/local/lib/node_modules/@tbrandenburg/node-red-cli/bin/node-red-cli-sandbox-entry.js"]',
     ""
   ].join("\n");
 

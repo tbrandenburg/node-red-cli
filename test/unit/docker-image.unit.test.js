@@ -72,12 +72,49 @@ test("unit: resolveImage fails fast when the docker binary itself is missing (sp
   );
 });
 
-test("unit: resolveImage returns an explicit image[:tag] as-is without building", async () => {
+test("unit: resolveImage returns an explicit image[:tag] as-is when it already has the sandbox entrypoint", async () => {
   cp.spawnSync.mock.mockImplementationOnce(dockerAvailable, 0); // docker info
+  cp.spawnSync.mock.mockImplementationOnce(() => ({ status: 0 }), 1); // sandbox entry check: present
 
   const image = await resolveImage("my-registry/my-image:latest", { version: "1.0.0" });
   assert.equal(image, "my-registry/my-image:latest");
-  assert.equal(cp.spawn.mock.callCount(), 0, "no build should be triggered for an explicit image");
+  assert.equal(
+    cp.spawn.mock.callCount(),
+    0,
+    "no build should be triggered when the entrypoint is already present"
+  );
+});
+
+test("unit: resolveImage installs node-red-cli into a derived image when an explicit image is missing the sandbox entrypoint", async () => {
+  cp.spawnSync.mock.mockImplementationOnce(dockerAvailable, 0); // docker info
+  cp.spawnSync.mock.mockImplementationOnce(() => ({ status: 1 }), 1); // sandbox entry check: missing
+  cp.spawnSync.mock.mockImplementationOnce(() => ({ status: 1 }), 2); // derived tag not cached
+
+  let buildArgs;
+  let dockerfileContent = "";
+  cp.spawn.mock.mockImplementationOnce((command, args) => {
+    buildArgs = args;
+    const child = fakeBuildChild({ code: 0 });
+    child.stdin.on("data", (chunk) => (dockerfileContent += chunk));
+    return child;
+  }, 0);
+
+  const image = await resolveImage("my-registry/my-image:latest", { version: "1.2.3" });
+  assert.match(image, /^node-red-cli-sandbox-derived:[0-9a-f]{16}$/);
+  assert.deepEqual(buildArgs.slice(0, 2), ["build", "-t"]);
+  assert.match(dockerfileContent, /FROM my-registry\/my-image:latest/);
+  assert.match(dockerfileContent, /npm install -g @tbrandenburg\/node-red-cli@1\.2\.3/);
+  assert.match(dockerfileContent, /ENTRYPOINT/);
+});
+
+test("unit: resolveImage skips the derived build when it's already cached for that image+version", async () => {
+  cp.spawnSync.mock.mockImplementationOnce(dockerAvailable, 0); // docker info
+  cp.spawnSync.mock.mockImplementationOnce(() => ({ status: 1 }), 1); // sandbox entry check: missing
+  cp.spawnSync.mock.mockImplementationOnce(() => ({ status: 0 }), 2); // derived tag already cached
+
+  const image = await resolveImage("my-registry/my-image:latest", { version: "1.2.3" });
+  assert.match(image, /^node-red-cli-sandbox-derived:[0-9a-f]{16}$/);
+  assert.equal(cp.spawn.mock.callCount(), 0, "no build should run when the derived image is already cached");
 });
 
 test("unit: resolveImage builds the default sandbox image once when not already cached", async () => {

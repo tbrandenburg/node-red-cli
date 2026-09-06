@@ -64,7 +64,9 @@ const HELP_TEXT = [
   "  - omitted (bare flag): use/build a cached local image",
   "    node-red-cli-sandbox:<installed version>, from node:24-slim + a",
   "    global npm install of this package.",
-  "  - '<image[:tag]>': use an explicit image as-is.",
+  "  - '<image[:tag]>': use an explicit image. If it already contains the",
+  "    sandbox entrypoint it is used as-is; otherwise node-red-cli is",
+  "    installed into a derived image on first use (cached by image+version).",
   "  - '@<path>' or an http(s) URL: build from a Dockerfile (local file or",
   "    fetched URL), cached by content hash.",
   "Sandboxing defaults: --network none (unless --node-modules is also set,",
@@ -292,7 +294,7 @@ program
   .option(
     "--docker [value]",
     "run the invocation sandboxed in a disposable Docker container; bare = cached default image, " +
-      "'<image[:tag]>' = explicit image, '@path'/URL = build from a Dockerfile"
+      "'<image[:tag]>' = explicit image (installed into if missing), '@path'/URL = build from a Dockerfile"
   )
   .addHelpText("after", HELP_TEXT)
   .version(version, "-v, --version", "print the installed node-red-cli version and exit")

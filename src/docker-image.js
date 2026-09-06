@@ -11,8 +11,11 @@
  *   the first time that version is needed, then cached by Docker forever
  *   (npm registry versions are immutable, so the tag is a permanently valid
  *   cache key - a version bump is the only thing that changes it).
- * - `<image[:tag]>`: used as-is, no build. Assumed to already contain a
- *   compatible `node-red-cli` sandbox entrypoint.
+ * - `<image[:tag]>`: used as-is if it already contains the sandbox
+ *   entrypoint at `SANDBOX_ENTRY_PATH`. Otherwise a derived image is built
+ *   on demand (`FROM <image>` + a global npm install of this package),
+ *   cached by `<image>@<version>` so the check/build only happens once per
+ *   image+version pair.
  * - `@<path>` or `<http(s)-url>`: build from a user-supplied Dockerfile
  *   (local file or fetched URL), cached by content hash so an unchanged
  *   Dockerfile isn't rebuilt every run.
@@ -59,6 +62,31 @@ function checkDockerAvailable() {
 function imageExists(tag) {
   const result = spawnSync("docker", ["image", "inspect", tag], { stdio: ["ignore", "ignore", "ignore"] });
   return result.status === 0;
+}
+
+/** Checks whether `image` already has the sandbox entrypoint file at `SANDBOX_ENTRY_PATH`. */
+function hasSandboxEntry(image) {
+  const result = spawnSync(
+    "docker",
+    ["run", "--rm", "--entrypoint", "sh", image, "-c", `test -f ${SANDBOX_ENTRY_PATH}`],
+    { stdio: ["ignore", "ignore", "ignore"] }
+  );
+  return result.status === 0;
+}
+
+/** Deterministic derived-image tag for a given base image + node-red-cli version. */
+function derivedTag(image, version) {
+  const hash = crypto.createHash("sha256").update(`${image}@${version}`).digest("hex").slice(0, 16);
+  return `node-red-cli-sandbox-derived:${hash}`;
+}
+
+function derivedDockerfile(image, version) {
+  return [
+    `FROM ${image}`,
+    `RUN npm install -g @tbrandenburg/node-red-cli@${version}`,
+    `ENTRYPOINT ["node", "${SANDBOX_ENTRY_PATH}"]`,
+    ""
+  ].join("\n");
 }
 
 /** Runs `docker build -t <tag> -`, feeding `dockerfileContent` in via stdin (no build context needed). */
@@ -166,8 +194,18 @@ async function resolveImage(dockerValue, { version, cwd = process.cwd() } = {}) 
     return tag;
   }
 
-  // Explicit image[:tag] reference, used as-is.
-  return dockerValue;
+  // Explicit image[:tag] reference: use as-is if it already has the sandbox
+  // entrypoint, otherwise install node-red-cli into a derived image on
+  // first use (cached by image+version, so this only happens once).
+  if (hasSandboxEntry(dockerValue)) {
+    return dockerValue;
+  }
+
+  const tag = derivedTag(dockerValue, version);
+  if (!imageExists(tag)) {
+    await dockerBuild(tag, derivedDockerfile(dockerValue, version));
+  }
+  return tag;
 }
 
 module.exports = { resolveImage, SANDBOX_ENTRY_PATH };

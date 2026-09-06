@@ -268,8 +268,11 @@ node-red-cli flows.json calculate --set x=4 --set y=5 --docker
   are immutable, so a version bump is the only thing that invalidates the
   tag) — later runs of the same version need no network access beyond the
   container's own sandboxed execution.
-- **`<image[:tag]>`**: use an explicit image as-is, assumed to already
-  contain a compatible `node-red-cli` sandbox entrypoint.
+- **`<image[:tag]>`**: use an explicit image. If it already contains the
+  sandbox entrypoint, it's used as-is; otherwise `node-red-cli` is
+  installed into a derived image (`FROM <image>` + a global npm install)
+  on first use, cached by image+version so the check/build only happens
+  once per image.
 - **`@<path>`** or an **http(s) URL**: build from a user-supplied
   Dockerfile (local file or fetched URL), cached by content hash so an
   unchanged Dockerfile isn't rebuilt every run.
