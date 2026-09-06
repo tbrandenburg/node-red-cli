@@ -278,7 +278,9 @@ Sandboxing defaults applied to every `--docker` run:
 
 - `--rm -i` (always disposable)
 - `--network none`, unless `--node-modules` is also given (needs registry
-  access) — narrowest network exposure by default
+  access) or `--network` is passed explicitly (enables network access for a
+  flow that needs to call out, independent of installing any package) —
+  narrowest network exposure by default
 - `--read-only` root filesystem + a `/tmp` tmpfs mount
 - `--cap-drop=ALL`
 - `--security-opt=no-new-privileges`
@@ -316,8 +318,9 @@ echo '{"payload":"Summarize this repo in one sentence.","cwd":"/repo"}' \
 The same flow runs sandboxed via `--docker <image>` against an image that
 already ships `opencode` + `node-red-agents`, e.g.
 [`ghcr.io/tbrandenburg/agentic-workflow-dev-env`](https://github.com/tbrandenburg/agentic-workflow-dev-env)
-(`--node-modules` is still required for network access, since the agent
-calls out to its own API):
+(`--network` is required for network access, since the agent calls out to
+its own API — the package is already in the image, so `--node-modules` is
+not needed here):
 
 ```bash
 echo '{"payload":"Summarize this repo in one sentence.","cwd":"/repo"}' \
@@ -329,7 +332,7 @@ echo '{"payload":"Summarize this repo in one sentence.","cwd":"/repo"}' \
        "cwd":"cwd","cwdType":"msg","wires":[["return"],[]]},
       {"id":"return","type":"link out","z":"tab","name":"return","mode":"return"}
     ]' ask --docker ghcr.io/tbrandenburg/agentic-workflow-dev-env:latest \
-    --node-modules @tbrandenburg/node-red-agents --user-dir --timeout=120000 --format=json
+    --network --timeout=120000 --format=json
 ```
 
 ## Host API 🛠️

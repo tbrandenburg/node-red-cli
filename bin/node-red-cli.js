@@ -70,10 +70,11 @@ const HELP_TEXT = [
   "  - '@<path>' or an http(s) URL: build from a Dockerfile (local file or",
   "    fetched URL), cached by content hash.",
   "Sandboxing defaults: --network none (unless --node-modules is also set,",
-  "which needs registry access), --read-only rootfs with a /tmp tmpfs,",
-  "--cap-drop=ALL, --security-opt=no-new-privileges. When combined with",
-  "--user-dir, persistence uses a named Docker volume, never a host bind",
-  "mount.",
+  "which needs registry access, or --network is passed explicitly to enable",
+  "network access independent of installing any package), --read-only",
+  "rootfs with a /tmp tmpfs, --cap-drop=ALL, --security-opt=no-new-privileges.",
+  "When combined with --user-dir, persistence uses a named Docker volume,",
+  "never a host bind mount.",
   "",
   "Example:",
   '  echo \'{"payload":{"x":4,"y":5}}\' | node-red-cli flows.json calculate',
@@ -231,7 +232,10 @@ async function run(args, options) {
     let result;
     try {
       image = await resolveImage(options.docker, { version });
-      result = await runContainer(image, envelope, { networkNeeded: nodeModules.length > 0, volumeName });
+      result = await runContainer(image, envelope, {
+        networkNeeded: nodeModules.length > 0 || options.network,
+        volumeName
+      });
     } catch (error) {
       console.error(error.message);
       process.exitCode = 1;
@@ -295,6 +299,10 @@ program
     "--docker [value]",
     "run the invocation sandboxed in a disposable Docker container; bare = cached default image, " +
       "'<image[:tag]>' = explicit image (installed into if missing), '@path'/URL = build from a Dockerfile"
+  )
+  .option(
+    "--network",
+    "enable network access in --docker mode, independent of --node-modules (default: --network none)"
   )
   .addHelpText("after", HELP_TEXT)
   .version(version, "-v, --version", "print the installed node-red-cli version and exit")

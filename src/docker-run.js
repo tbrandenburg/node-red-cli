@@ -8,7 +8,8 @@
  *
  * Sandboxing defaults (always applied):
  * - `--rm -i` (always disposable, interactive stdin)
- * - `--network none`, unless `networkNeeded` (i.e. `--node-modules` is set)
+ * - `--network none`, unless `networkNeeded` (i.e. `--node-modules` and/or
+ *   the CLI's `--network` flag is set)
  * - `--read-only` root filesystem + a `/tmp` tmpfs mount
  * - `-e HOME=/tmp`, so tools needing a writable `$HOME` (config/cache dirs)
  *   land on the writable `/tmp` tmpfs instead of the read-only rootfs
