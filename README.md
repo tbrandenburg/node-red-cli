@@ -106,7 +106,6 @@ bin/                CLI entrypoint (node-red-cli)
 src/                Host-side link-call adapter (library API)
 test/unit/          Fast tests against a fake Node-RED runtime
 test/integration/   Adapter tests against a real embedded runtime
-test/e2e/           Full round trip through the example flow
 test/fixtures/      Example Node-RED flow used as a test asset
 ```
 
