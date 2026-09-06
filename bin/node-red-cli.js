@@ -74,9 +74,16 @@ const HELP_TEXT = [
   "network access independent of installing any package), --read-only",
   "rootfs with a /tmp tmpfs, --cap-drop=ALL, --security-opt=no-new-privileges.",
   "When combined with --user-dir, persistence uses a named Docker volume,",
-  "never a host bind mount. Image authors can set",
-  "NODE_RED_CLI_DEFAULT_USERDIR=<path> so a pre-installed userDir is",
-  "discovered automatically when --user-dir isn't given.",
+  "never a host bind mount. Without --user-dir, the container's own /data",
+  "is auto-probed for a pre-populated Node-RED userDir (best-effort; see",
+  "--docker-userdir for a reliable, explicit alternative).",
+  "",
+  "--docker-userdir <path> tells --docker to use <path> (a directory inside",
+  "the container, e.g. one a base image already pre-installs Node-RED node",
+  "packages into) as the userDir, instead of the default ephemeral tmpdir or",
+  "the best-effort /data auto-probe. Ignored outside --docker mode.",
+  "Precedence: --user-dir > --docker-userdir > the /data auto-probe > the",
+  "ephemeral default.",
   "",
   "Example:",
   '  echo \'{"payload":{"x":4,"y":5}}\' | node-red-cli flows.json calculate',
@@ -197,10 +204,18 @@ async function run(args, options) {
 
   const persistentUserDir = resolveUserDir(options.userDir);
   if (nodeModules.length > 0 && !persistentUserDir) {
-    console.error(
-      "node-red-cli: --node-modules requires an explicit --user-dir (a persistent directory); " +
-        "using it with the default ephemeral userDir would reinstall from npm on every run"
-    );
+    if (options.dockerUserdir || options.docker) {
+      console.error(
+        "node-red-cli: --node-modules requires an explicit --user-dir (a persistent directory); " +
+          "--docker-userdir and the best-effort /data auto-probe are not guaranteed persistent, " +
+          "so installing into them would just reinstall from npm on every run"
+      );
+    } else {
+      console.error(
+        "node-red-cli: --node-modules requires an explicit --user-dir (a persistent directory); " +
+          "using it with the default ephemeral userDir would reinstall from npm on every run"
+      );
+    }
     process.exitCode = 1;
     return;
   }
@@ -226,7 +241,8 @@ async function run(args, options) {
         timeoutMs: options.timeout,
         format: options.format,
         nodeModules,
-        userDir: volumeName ? CONTAINER_USER_DIR : undefined
+        userDir: volumeName ? CONTAINER_USER_DIR : undefined,
+        dockerUserDir: options.dockerUserdir
       }
     };
 
@@ -301,6 +317,11 @@ program
     "--docker [value]",
     "run the invocation sandboxed in a disposable Docker container; bare = cached default image, " +
       "'<image[:tag]>' = explicit image (installed into if missing), '@path'/URL = build from a Dockerfile"
+  )
+  .option(
+    "--docker-userdir <path>",
+    "in --docker mode, use <path> (inside the container) as the userDir instead of the default " +
+      "ephemeral tmpdir or the best-effort /data auto-probe; ignored outside --docker mode"
   )
   .option(
     "--network",

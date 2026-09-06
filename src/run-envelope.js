@@ -133,31 +133,110 @@ function waitForFlowsSettled(RED) {
 }
 
 /**
- * Resolves the image/host-provided default `userDir` from the
- * `NODE_RED_CLI_DEFAULT_USERDIR` environment variable (see #31): community
- * Docker images that pre-install Node-RED node packages into their own
- * conventional userDir can set this variable so `--docker` (without an
- * explicit `--user-dir`) discovers it automatically. Returns `undefined` if
- * unset. Fails open, not closed: if the path doesn't exist, isn't a
- * directory, or isn't accessible, logs a one-line stderr warning and returns
- * `undefined` so the caller falls back to its normal ephemeral tmpdir,
- * rather than aborting the invocation.
+ * True if `dirPath` exists and, following symlinks (npm frequently
+ * symlinks packages, e.g. in workspace/monorepo installs), is a directory.
+ * Never throws: any stat failure (missing path, broken symlink, etc.)
+ * resolves to `false`.
  */
-function resolveDefaultUserDir() {
-  const configuredPath = process.env.NODE_RED_CLI_DEFAULT_USERDIR;
-  if (!configuredPath) return undefined;
-
+function isDirectory(dirPath) {
   try {
-    if (fs.statSync(configuredPath).isDirectory()) return configuredPath;
-    console.error(
-      `node-red-cli: NODE_RED_CLI_DEFAULT_USERDIR='${configuredPath}' is not usable (not a directory), falling back to an ephemeral userDir`
-    );
-  } catch (error) {
-    console.error(
-      `node-red-cli: NODE_RED_CLI_DEFAULT_USERDIR='${configuredPath}' is not usable (${error.message}), falling back to an ephemeral userDir`
-    );
+    return fs.statSync(dirPath).isDirectory();
+  } catch {
+    return false;
   }
-  return undefined;
+}
+
+/**
+ * Returns every immediate subdirectory of `node_modules`, including one
+ * level of scoped-package expansion (`@scope/*`), as a flat list of
+ * absolute directory paths. Follows symlinks (see `isDirectory`). Never
+ * throws: an unreadable/missing `node_modules` (or scope dir) simply
+ * contributes no candidates.
+ */
+function listNodeModuleDirs(nodeModulesDir) {
+  let entries;
+  try {
+    entries = fs.readdirSync(nodeModulesDir);
+  } catch {
+    return [];
+  }
+
+  return entries.flatMap((name) => {
+    const entryPath = path.join(nodeModulesDir, name);
+    if (!name.startsWith("@")) return isDirectory(entryPath) ? [entryPath] : [];
+    if (!isDirectory(entryPath)) return [];
+
+    let scopedNames;
+    try {
+      scopedNames = fs.readdirSync(entryPath);
+    } catch {
+      return [];
+    }
+    return scopedNames.map((scoped) => path.join(entryPath, scoped)).filter(isDirectory);
+  });
+}
+
+/** True if `packageDir/package.json` exists, parses, and declares a `"node-red"` key. */
+function isNodeRedPackage(packageDir) {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(packageDir, "package.json"), "utf8"));
+    return Boolean(pkg["node-red"]);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Auto-probes `baseDir` (default `/data`, the conventional mount point of
+ * the motivating `ghcr.io/tbrandenburg/agentic-workflow-dev-env` image, see
+ * issue #33) for a Node-RED userDir a community image pre-populated with
+ * its own node packages. Returns `baseDir` when it exists, is a directory,
+ * and at least one direct or scoped (`@scope/*`) child of its
+ * `node_modules` declares a `"node-red"` key in `package.json`; returns
+ * `undefined` otherwise.
+ *
+ * Best-effort by design: a real userDir with unrelated packages under
+ * `node_modules` (false negative) or a `/data` that merely happens to
+ * contain an unrelated `"node-red"`-keyed package (false positive) are both
+ * possible; `--docker-userdir <path>` is the reliable, explicit alternative
+ * when this heuristic doesn't fit an image. Never throws: any missing or
+ * unreadable path along the way resolves to "not usable".
+ *
+ * Only meaningful inside a container (`/data` has no reserved meaning on
+ * the host), so this is only ever called from the sandbox entrypoint
+ * (`bin/node-red-cli-sandbox-entry.js`), never from the host CLI path.
+ */
+function resolveContainerDefaultUserDir(baseDir = "/data") {
+  if (!isDirectory(baseDir)) return undefined;
+  const candidateDirs = listNodeModuleDirs(path.join(baseDir, "node_modules"));
+  return candidateDirs.some(isNodeRedPackage) ? baseDir : undefined;
+}
+
+/**
+ * Resolves which `userDir` source wins, in order of precedence (see #33):
+ *
+ * 1. `userDir` -- host-managed, explicit `--user-dir` (or its container
+ *    named-volume mount path).
+ * 2. `dockerUserDir` -- explicit `--docker-userdir <path>` passthrough.
+ * 3. the auto-probed `/data` default (see `resolveContainerDefaultUserDir`),
+ *    only attempted when `probeContainerDefault` is set (sandbox entrypoint
+ *    only).
+ * 4. `undefined` -- caller falls back to an ephemeral tmpdir.
+ *
+ * The first three are all treated as persistent (never removed afterward);
+ * only the ephemeral tmpdir fallback is managed/cleaned up by the caller.
+ *
+ * `probeBaseDir` overrides the auto-probed path (defaults to `/data`) --
+ * only ever used by tests; real callers always probe the real `/data`.
+ */
+function resolveEffectiveUserDir({ userDir, dockerUserDir, probeContainerDefault, probeBaseDir } = {}) {
+  if (userDir) return { userDir, persistent: true };
+  if (dockerUserDir) return { userDir: dockerUserDir, persistent: true };
+  if (probeContainerDefault) {
+    const probed = resolveContainerDefaultUserDir(probeBaseDir);
+    if (probed) return { userDir: probed, persistent: true };
+  }
+  return { userDir: undefined, persistent: false };
 }
 
 /**
@@ -172,15 +251,14 @@ function resolveDefaultUserDir() {
  * entrypoint (`bin/node-red-cli-sandbox-entry.js`, `--docker` path), so both
  * execute the exact same runtime logic.
  *
- * `options.userDir`, when set, is treated as a persistent directory and is
- * never removed afterward (host: an explicit `--user-dir`; container: the
- * fixed mount path of a named Docker volume). When omitted, and the
- * `NODE_RED_CLI_DEFAULT_USERDIR` environment variable points at an existing
- * directory (see `resolveDefaultUserDir`), that directory is used instead —
- * also treated as persistent and never removed afterward, letting a Docker
- * image's own pre-populated default userDir be discovered automatically
- * (see #31). Otherwise an ephemeral tmpdir is created and removed again
- * after the call.
+ * `userDir` resolution follows `resolveEffectiveUserDir`'s precedence:
+ * `options.userDir` (host: an explicit `--user-dir`; container: the fixed
+ * mount path of a named Docker volume) > `options.dockerUserDir` (explicit
+ * `--docker-userdir <path>` passthrough) > the auto-probed `/data` default
+ * (see `resolveContainerDefaultUserDir`, only attempted when
+ * `options.probeContainerDefault` is set -- sandbox entrypoint only) > an
+ * ephemeral tmpdir created fresh and removed again after the call. The
+ * first three are all treated as persistent and never removed afterward.
  */
 async function runFlowInvocation({ flow, flowFile, msg, options }) {
   const {
@@ -189,14 +267,14 @@ async function runFlowInvocation({ flow, flowFile, msg, options }) {
     timeoutMs = 5000,
     format = "plain",
     nodeModules = [],
-    userDir: fixedUserDir
+    userDir: fixedUserDir,
+    dockerUserDir,
+    probeContainerDefault
   } = options;
 
-  const persistentUserDir = Boolean(fixedUserDir);
-  const imageDefaultUserDir = !persistentUserDir ? resolveDefaultUserDir() : undefined;
-  const userDir =
-    fixedUserDir || imageDefaultUserDir || fs.mkdtempSync(path.join(os.tmpdir(), "node-red-cli-"));
-  const managedUserDir = !persistentUserDir && !imageDefaultUserDir;
+  const resolved = resolveEffectiveUserDir({ userDir: fixedUserDir, dockerUserDir, probeContainerDefault });
+  const userDir = resolved.userDir || fs.mkdtempSync(path.join(os.tmpdir(), "node-red-cli-"));
+  const managedUserDir = !resolved.persistent;
 
   try {
     if (nodeModules.length > 0) {
@@ -234,4 +312,9 @@ async function runFlowInvocation({ flow, flowFile, msg, options }) {
   }
 }
 
-module.exports = { runFlowInvocation, stderrLogHandler, resolveDefaultUserDir };
+module.exports = {
+  runFlowInvocation,
+  stderrLogHandler,
+  resolveContainerDefaultUserDir,
+  resolveEffectiveUserDir
+};
