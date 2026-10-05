@@ -14,7 +14,7 @@
  * attempted here -- inside the container -- and never on the host CLI
  * path, since `/data` has no reserved meaning outside a container. It only
  * takes effect as a fallback: an explicit `userDir` (named-volume mount) or
- * `dockerUserDir` (`--docker-userdir`) already present on `envelope.options`
+ * `dockerUserDir` (`--docker-user-dir`) already present on `envelope.options`
  * still wins, per `resolveEffectiveUserDir`'s precedence.
  */
 

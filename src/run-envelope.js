@@ -6,7 +6,7 @@ const os = require("node:os");
 const RED = require("node-red");
 const { createHostLinkCaller } = require("./link-call");
 const { createMemoryStorageModule } = require("./flow-storage");
-const { formatPlain } = require("./cli-params");
+const { formatPayload } = require("./cli-params");
 const { installMissingNodeModules } = require("./node-modules-install");
 
 const LEVEL_NAMES = {
@@ -198,7 +198,7 @@ function isNodeRedPackage(packageDir) {
  * Best-effort by design: a real userDir with unrelated packages under
  * `node_modules` (false negative) or a `/data` that merely happens to
  * contain an unrelated `"node-red"`-keyed package (false positive) are both
- * possible; `--docker-userdir <path>` is the reliable, explicit alternative
+ * possible; `--docker-user-dir <dir>` is the reliable, explicit alternative
  * when this heuristic doesn't fit an image. Never throws: any missing or
  * unreadable path along the way resolves to "not usable".
  *
@@ -217,7 +217,7 @@ function resolveContainerDefaultUserDir(baseDir = "/data") {
  *
  * 1. `userDir` -- host-managed, explicit `--user-dir` (or its container
  *    named-volume mount path).
- * 2. `dockerUserDir` -- explicit `--docker-userdir <path>` passthrough.
+ * 2. `dockerUserDir` -- explicit `--docker-user-dir <dir>` passthrough.
  * 3. the auto-probed `/data` default (see `resolveContainerDefaultUserDir`),
  *    only attempted when `probeContainerDefault` is set (sandbox entrypoint
  *    only).
@@ -254,7 +254,7 @@ function resolveEffectiveUserDir({ userDir, dockerUserDir, probeContainerDefault
  * `userDir` resolution follows `resolveEffectiveUserDir`'s precedence:
  * `options.userDir` (host: an explicit `--user-dir`; container: the fixed
  * mount path of a named Docker volume) > `options.dockerUserDir` (explicit
- * `--docker-userdir <path>` passthrough) > the auto-probed `/data` default
+ * `--docker-user-dir <dir>` passthrough) > the auto-probed `/data` default
  * (see `resolveContainerDefaultUserDir`, only attempted when
  * `options.probeContainerDefault` is set -- sandbox entrypoint only) > an
  * ephemeral tmpdir created fresh and removed again after the call. The
@@ -265,7 +265,7 @@ async function runFlowInvocation({ flow, flowFile, msg, options }) {
     target,
     flow: flowSelector,
     timeoutMs = 5000,
-    format = "plain",
+    output = "payload",
     nodeModules = [],
     userDir: fixedUserDir,
     dockerUserDir,
@@ -302,7 +302,7 @@ async function runFlowInvocation({ flow, flowFile, msg, options }) {
         timeout: timeoutMs,
         onWarning: (warning) => console.error(`node-red-cli: warning: ${warning}`)
       });
-      return { output: format === "plain" ? formatPlain(result.payload) : JSON.stringify(result) };
+      return { output: output === "payload" ? formatPayload(result.payload) : JSON.stringify(result) };
     } finally {
       caller?.close();
       await RED.stop();

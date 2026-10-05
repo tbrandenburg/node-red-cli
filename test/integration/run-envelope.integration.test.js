@@ -28,7 +28,7 @@ test("integration: runFlowInvocation rejects with preflight error for an unregis
     runFlowInvocation({
       flow: UNREGISTERED_TYPE_FLOW,
       msg: { payload: "hi" },
-      options: { target: "ask", timeoutMs: 5000, format: "json" }
+      options: { target: "ask", timeoutMs: 5000, output: "message" }
     }),
     /preflight validation failed:\n- target 'ask' is not instantiated in the runtime/
   );
@@ -41,7 +41,7 @@ test("integration: runFlowInvocation rejects with preflight error for an unregis
       runFlowInvocation({
         flow: UNREGISTERED_TYPE_FLOW,
         msg: { payload: "hi" },
-        options: { target: "ask", timeoutMs: 5000, format: "json", userDir }
+        options: { target: "ask", timeoutMs: 5000, output: "message", userDir }
       }),
       /preflight validation failed:\n- target 'ask' is not instantiated in the runtime/
     );
@@ -83,7 +83,7 @@ test("integration: runFlowInvocation deploys and calls a flow whose nodes omit e
   const result = await runFlowInvocation({
     flow: SELF_NAMED_LINK_FLOW,
     msg: { payload: "hi" },
-    options: { target: "ask", timeoutMs: 5000, format: "json" }
+    options: { target: "ask", timeoutMs: 5000, output: "message" }
   });
   assert.deepEqual(JSON.parse(result.output).payload, "hi");
 });
@@ -107,7 +107,7 @@ test("integration: runFlowInvocation uses dockerUserDir as userDir and never rem
     const result = await runFlowInvocation({
       flow: SELF_NAMED_LINK_FLOW,
       msg: { payload: "hi" },
-      options: { target: "ask", timeoutMs: 5000, format: "json", dockerUserDir }
+      options: { target: "ask", timeoutMs: 5000, output: "message", dockerUserDir }
     });
     assert.deepEqual(JSON.parse(result.output).payload, "hi");
     assert.equal(fs.existsSync(dockerUserDir), true);
@@ -125,7 +125,7 @@ test("integration: explicit userDir takes precedence over dockerUserDir", async 
     const result = await runFlowInvocation({
       flow: SELF_NAMED_LINK_FLOW,
       msg: { payload: "hi" },
-      options: { target: "ask", timeoutMs: 5000, format: "json", userDir: explicitUserDir, dockerUserDir }
+      options: { target: "ask", timeoutMs: 5000, output: "message", userDir: explicitUserDir, dockerUserDir }
     });
     assert.deepEqual(JSON.parse(result.output).payload, "hi");
     // The dockerUserDir must be left untouched -- proof it was never loaded.

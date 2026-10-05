@@ -47,17 +47,15 @@ function applySetParams(payload, pairs) {
 /**
  * Resolves a `--flow-json <value>` CLI option into a parsed flow array.
  *
- * Supports three forms:
+ * Supports two forms:
  * - `-`: read the flow JSON from stdin, via the injected `readStdin()`.
- * - `@<path>`: read the flow JSON from the file at `<path>` (resolved
- *   relative to `cwd`), mirroring the positional `<flows.json>` argument.
  * - anything else: treated as an inline JSON string.
  *
  * Throws a clear `Error` when the value isn't valid JSON, or when it parses
  * to something other than an array (Node-RED flow files are JSON arrays of
  * node configs).
  */
-async function parseFlowJsonParam(value, { readStdin, cwd = process.cwd() } = {}) {
+async function parseFlowJsonParam(value, { readStdin } = {}) {
   let raw;
   let source;
   if (value === "-") {
@@ -66,16 +64,6 @@ async function parseFlowJsonParam(value, { readStdin, cwd = process.cwd() } = {}
     }
     raw = await readStdin();
     source = "stdin";
-  } else if (value.startsWith("@")) {
-    const fs = require("node:fs");
-    const path = require("node:path");
-    const filePath = path.resolve(cwd, value.slice(1));
-    source = filePath;
-    try {
-      raw = fs.readFileSync(filePath, "utf8");
-    } catch (error) {
-      throw new Error(`could not read --flow-json file '${filePath}': ${error.message}`, { cause: error });
-    }
   } else {
     raw = value;
     source = "--flow-json value";
@@ -95,27 +83,27 @@ async function parseFlowJsonParam(value, { readStdin, cwd = process.cwd() } = {}
   return flows;
 }
 
-const VALID_FORMATS = ["json", "plain"];
+const VALID_OUTPUTS = ["payload", "message"];
 
 /**
- * Validates the `--format` CLI option value.
+ * Validates the `--output` CLI option value.
  *
- * Returns the format unchanged when valid (`"json"` or `"plain"`); throws
- * otherwise so the CLI can report a clear error and exit non-zero.
+ * Returns the output mode unchanged when valid (`"payload"` or `"message"`);
+ * throws otherwise so the CLI can report a clear error and exit non-zero.
  */
-function parseFormatParam(format) {
-  if (!VALID_FORMATS.includes(format)) {
-    throw new Error(`invalid --format value '${format}', expected one of: ${VALID_FORMATS.join(", ")}`);
+function parseOutputParam(output) {
+  if (!VALID_OUTPUTS.includes(output)) {
+    throw new Error(`invalid --output value '${output}', expected one of: ${VALID_OUTPUTS.join(", ")}`);
   }
-  return format;
+  return output;
 }
 
 /**
- * Renders a link-out result for `--format=plain`: just the raw payload,
+ * Renders a link-out result for `--output=payload`: just the raw payload,
  * as text. Strings are printed as-is; other JSON-compatible values
  * (numbers, booleans, null, objects, arrays) are JSON-stringified.
  */
-function formatPlain(payload) {
+function formatPayload(payload) {
   return typeof payload === "string" ? payload : JSON.stringify(payload);
 }
 
@@ -123,7 +111,7 @@ module.exports = {
   parseSetParam,
   applySetParams,
   parseFlowJsonParam,
-  parseFormatParam,
-  formatPlain,
-  VALID_FORMATS
+  parseOutputParam,
+  formatPayload,
+  VALID_OUTPUTS
 };

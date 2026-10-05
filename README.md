@@ -1,465 +1,120 @@
-# node-red-cli 🔗
+# node-red-cli
 
 [![Checks](https://github.com/tbrandenburg/node-red-cli/actions/workflows/checks.yml/badge.svg)](https://github.com/tbrandenburg/node-red-cli/actions/workflows/checks.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Node.js >=24](https://img.shields.io/badge/node-%3E%3D24-brightgreen.svg)](package.json)
 
-Call existing Node-RED flows from a CLI or a Node.js host, like ordinary
-functions — using the real embedded Node-RED runtime, no flow mutation, no
+Call existing Node-RED flows from a CLI or Node.js host, like ordinary
+functions, using the real embedded Node-RED runtime without flow mutation or
 temporary nodes.
 
 ```bash
-node-red-cli flows.json calculate --set x=4 --set y=5 < /dev/null
+node-red-cli run test/fixtures/flows.json calculate --set x=4 --set y=5 < /dev/null
 ```
 
-```
+```text
 9
 ```
 
-This turns Node-RED from a visual automation tool into a reusable runtime
-building block for scripts, services, pipelines, and developer tooling. 🧩
-
-## Install 📦
+## Install
 
 ```bash
 npm install -g @tbrandenburg/node-red-cli
 ```
 
-This installs the `node-red-cli` command globally, ready to use against any
-Node-RED flow file (see [Usage](#usage-) below).
+For a repository checkout, run `make install` and `make ci`. `make install`
+also configures the pre-push hook to run the CI checks.
 
-To build and run from a repo checkout instead (e.g. for contributing):
+## CLI usage
+
+```text
+node-red-cli run [flow-file] [entry] [options]
+```
+
+`run` is required. A **flow-file** is the local Node-RED flow JSON file, a
+**tab** is a Node-RED workspace, and an **entry** is a callable Link In node
+selected by ID or unique name. When omitted, the entry is inferred if the flow
+has only one Link In node.
+
+```bash
+echo '{"payload":{"x":4,"y":5}}' | node-red-cli run test/fixtures/flows.json calculate
+node-red-cli run test/fixtures/flows.json calculate --tab "Calculator Example" --set x=4 --set y=5 < /dev/null
+node-red-cli run test/fixtures/single-link-in.flows.json --set x=4 --set y=5 < /dev/null
+```
+
+### Flow-file resolution
+
+- A flow-file path that is absolute or contains `/` or `\` is resolved exactly
+  relative to the current directory when not absolute.
+- A bare flow-file name resolves in the current directory, or exactly in
+  `--flow-dir` when supplied.
+- With no flow-file, the name is `flows.json` in the current directory or in
+  `--flow-dir`.
+- There is no search of conventional directories or fallback to another path.
+  `--flow-dir` must exist and be a directory; the selected flow-file must be a
+  regular file.
+
+```bash
+node-red-cli run plan.json --flow-dir ~/.workflows
+```
+
+### Options
+
+| Option                            | Description                                                                                                                                 |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--tab <id\|label>`               | Scope entry selection to a workspace tab ID or unique label.                                                                                |
+| `--flow-dir <dir>`                | Directory for a bare flow-file name and the default `flows.json`.                                                                           |
+| `--flow-json <json\|->`           | Use inline flow JSON, or `-` to read the flow definition from stdin. Mutually exclusive with a flow-file positional.                        |
+| `--set <key=value>`               | Set `msg.payload.<key>`. Repeatable; JSON values are parsed, otherwise treated as strings.                                                  |
+| `--timeout <ms>`                  | Link-call timeout in milliseconds (default: `5000`).                                                                                        |
+| `--output <payload\|message>`     | Print only the payload (default) or the full returned message as JSON.                                                                      |
+| `--user-dir [dir]`                | Persistent Node-RED userDir. A supplied directory is used directly; bare option uses the stable cache; omission uses a temporary directory. |
+| `--node-modules <name[@version]>` | Install missing Node-RED node packages. Repeatable/comma-separated; requires persistent `--user-dir`.                                       |
+| `--docker [image]`                | Execute the invocation in a disposable Docker container; bare option uses the cached default image.                                         |
+| `--docker-user-dir <dir>`         | In Docker mode, select the userDir inside the container.                                                                                    |
+| `--network`                       | Enable Docker network access (Docker otherwise defaults to no network, except when package installation requires it).                       |
+
+Payload output prints strings as-is and JSON-stringifies other values. Message
+output includes Node-RED message properties such as `_msgid`.
+
+`--flow-json -` consumes stdin for the flow definition. In this form, construct
+the invocation message with `--set` rather than stdin:
+
+```bash
+node-red-cli run --flow-json - calculate --set x=4 --set y=5 < test/fixtures/flows.json
+```
+
+`--node-modules` runs `npm install` and therefore executes package code from the
+configured registry. Use trusted packages only. Docker mode uses a read-only
+root filesystem, drops capabilities, and disables networking by default.
+
+## Host API
+
+```js
+const { createHostLinkCaller } = require("./src/link-call");
+const caller = createHostLinkCaller(RED);
+const result = await caller.call("calculate", { payload: { x: 4, y: 5 } }, { flow: "calculator" });
+console.log(result.payload);
+caller.close();
+```
+
+The host API's `flow` selector accepts a tab ID or unique label. Explicit Link
+In IDs resolve across tabs; a supplied flow selector scopes entry selection.
+Link In names must be unique in the applicable scope. With no entry, a sole
+Link In is inferred; inference across tabs can report a warning using the
+optional `onWarning` callback.
+
+Node-RED executes native Links and subflows. A flow that does not return
+rejects when the configured timeout expires. The runtime adapter is tested
+against supported Node-RED versions because it relies on runtime internals.
+
+## Development
 
 ```bash
 make install
 make test
+make ci
 ```
 
-`make install` also wires up a `pre-push` git hook that runs `make ci`
-(format, lint, and tests) automatically before every push. To use
-`node-red-cli` as a regular command from a repo checkout, install it
-globally from the local source:
-
-```bash
-make install-global
-```
-
-## Table of contents
-
-- [The idea](#the-idea-)
-- [Why node-red-cli?](#why-node-red-cli-)
-- [Project layout](#project-layout-)
-- [Usage](#usage-)
-  - [Quick start](#quick-start)
-  - [Passing flow JSON inline](#passing-flow-json-inline)
-  - [Installing additional Node-RED node packages](#installing-additional-node-red-node-packages)
-  - [Running sandboxed in Docker](#running-sandboxed-in-docker-)
-  - [Agentic workflows](#agentic-workflows-)
-- [Host API](#host-api-)
-- [Technical approach](#technical-approach-)
-- [Preflight and limitations](#preflight-and-limitations-)
-- [Contributing](#contributing-)
-- [Security](#security-)
-- [License](#license-)
-
-## The idea 💡
-
-An existing flow becomes a clean input/output interface:
-
-```text
-stdin / CLI args
-        |
-        v
-   Node-RED runtime
-        |
-        v
-   link in: calculate -> any flow -> link out: return
-        |
-        v
-stdout / Promise<Result>
-```
-
-The flow itself stays untouched. No extra CLI nodes, no copy-pasted logic, and
-no permanently deployed adapter structure. 🚫🔧
-
-## Why node-red-cli? ✅
-
-- **Reuse existing flows:** business logic stays where it's already
-  maintained — in Node-RED.
-- **Uses the real Node-RED runtime:** core and contrib nodes don't need to be
-  reimplemented.
-- **CLI-friendly I/O:** JSON in, JSON out.
-- **Async support included:** Node-RED flows keep working exactly as they
-  normally do.
-- **Safely bounded calls:** timeouts prevent a process from hanging forever.
-- **Clean separation:** results go to `stdout`, logs and errors go to
-  `stderr`.
-- **No flow mutation:** the current implementation adds no temporary nodes and
-  never redeploys `flows.json`.
-- **Optional sandboxing:** `--docker` re-executes a call inside a disposable,
-  hardened container instead of the host process.
-
-## Project layout 📁
-
-```text
-bin/                CLI entrypoint (node-red-cli)
-src/                Host-side link-call adapter (library API)
-test/unit/          Fast tests against a fake Node-RED runtime
-test/integration/   Adapter tests against a real embedded runtime
-test/fixtures/      Example Node-RED flow used as a test asset
-```
-
-## Usage 🚀
-
-### Quick start
-
-Try the CLI directly against the example flow:
-
-```bash
-echo '{"payload":{"x":4,"y":5}}' | node-red-cli run test/fixtures/flows.json calculate
-```
-
-```
-9
-```
-
-By default only the resulting payload is printed as plain text. Pass
-`--format=json` to print the full result object as JSON instead (the
-`_msgid` is generated by Node-RED and differs on every run):
-
-```bash
-node-red-cli run test/fixtures/flows.json calculate \
-  --set x=4 --set y=5 --format=json < /dev/null
-```
-
-```json
-{ "payload": 9, "_msgid": "..." }
-```
-
-The `target` argument is optional; if the flow has exactly one `link in`
-node, it is used automatically (with a warning on stderr if it also had to be
-inferred across multiple tabs):
-
-```bash
-echo '{"payload":{"x":4,"y":5}}' | node-red-cli run test/fixtures/single-link-in.flows.json
-```
-
-Instead of building the whole JSON message yourself, individual payload
-attributes can be set directly from CLI params with repeatable
-`--set <key>=<value>` flags. Values are JSON-parsed when possible (so `4`
-becomes a number, `true` a boolean), otherwise kept as plain strings, and they
-are applied on top of (and override) any payload read from stdin:
-
-```bash
-node-red-cli run test/fixtures/flows.json calculate \
-  --set x=4 --set y=5 < /dev/null
-```
-
-```
-9
-```
-
-The original positional form remains supported:
-
-```bash
-node-red-cli test/fixtures/flows.json calculate --set x=4 --set y=5 < /dev/null
-```
-
-The preferred command form is `node-red-cli run [flows.json] [target]`. The
-original `node-red-cli <flows.json> [target]` form remains supported. If no
-flow filename is supplied, `flows.json` is discovered and the existing target
-inference applies. A bare filename is searched in this order: current
-directory, `data/`, `.node-red/`, `.workflows/`, `.node-red-cli/`, `node-red/`,
-`workflows/`, `node-red-cli/`, then `$HOME/.node-red/`,
-`$HOME/.node-red-cli/`, and `$HOME/.workflows/`. The first matching requested
-filename is used. Paths such as `./plan.json`, `../plan.json`, absolute paths,
-or names containing a path separator are exact and never fall back to discovery.
-
-Use `--flowDir <dir>` to look for a bare filename in only that directory; it
-does not affect Node-RED's runtime `userDir`. For example:
-
-```bash
-node-red-cli run plan.json --flowDir ~/.workflows --userDir ~/.node-red
-```
-
-`--userDir [path]` sets the runtime directory (`--user-dir [path]` remains a
-compatible alias). Omitting the value selects the stable cache directory.
-
-### Passing flow JSON inline
-
-Instead of a `<flows.json>` file path, `--flow-json <value>` accepts the flow
-definition directly. `--flowJson <value>` is a camelCase alias. In-memory
-callers (tests, another Node.js process, a Node-RED editor "run this flow"
-action) never have to write a temp file just to satisfy this CLI's file-based
-API. It is mutually exclusive with a flow-file positional argument and bypasses
-local flow-file discovery. `<value>` is one of:
-
-- an inline JSON array: `--flow-json '[{"id":"a",...}]'`
-- `-` to read the flow JSON from stdin
-- `@<path>` to read it from a file (equivalent to the positional argument)
-
-The flow is never written to disk in any of these forms.
-
-```bash
-node-red-cli run --flow-json @test/fixtures/flows.json calculate \
-  --set x=4 --set y=5 < /dev/null
-```
-
-```
-9
-```
-
-Since stdin is also used to read the `msg` payload, `--flow-json -` and the
-stdin `msg` are mutually exclusive: when `--flow-json -` is used, stdin is
-consumed by the flow definition instead, so `msg` must be built entirely from
-`--set` params:
-
-```bash
-node-red-cli run --flow-json - calculate --set x=4 --set y=5 \
-  < test/fixtures/flows.json
-```
-
-```
-9
-```
-
-### Installing additional Node-RED node packages
-
-By default the CLI creates a fresh, ephemeral Node-RED `userDir` per
-invocation and deletes it afterwards, so only the node types bundled with
-`node-red` itself are available to a flow. To use community/custom nodes
-(e.g. `node-red-contrib-something`), two options work together:
-
-- `--userDir [path]` makes the `userDir` persistent/reusable across runs
-  (`--user-dir` remains a compatible alias)
-  instead of ephemeral. Pass a path to use a specific directory, or the bare
-  flag to use a stable cache dir (`$XDG_CACHE_HOME/node-red-cli`, falling
-  back to `~/.cache/node-red-cli`). Omitting `--userDir` entirely preserves
-  today's ephemeral behavior unchanged.
-- `--node-modules <name[@version]>[,...]` installs any of the given
-  Node-RED node npm packages that are missing from `<userDir>/node_modules`
-  before the flow runs. Repeatable and/or comma-separated. **Requires an
-  explicit `--userDir`** — using it with the default ephemeral `userDir`
-  is rejected with a clear error, since the installed module would be
-  thrown away immediately and reinstalled from npm on every single
-  invocation.
-
-```bash
-node-red-cli run flows.json calculate \
-  --userDir ~/.cache/node-red-cli \
-  --node-modules node-red-node-random \
-  --set x=4 --set y=5 < /dev/null
-```
-
-Already-installed, version-matching modules are left untouched, so repeat
-runs against a warm cache do not touch the network. **No invocation ever
-reaches out to npm unless `--node-modules` is explicitly passed.**
-
-⚠️ **Security note**: `--node-modules` runs a real `npm install`, i.e.
-arbitrary code execution from whatever npm registry is configured. Only
-use it with trusted module names. A minimal built-in denylist blocks
-obviously unsafe values (path traversal, URLs, whitespace); operators can
-add exact names or `*`-glob patterns via the `NODE_RED_CLI_DENY_MODULES`
-environment variable (comma-separated), e.g.
-`NODE_RED_CLI_DENY_MODULES="node-red-contrib-*-internal"`.
-
-⚠️ **Persistent `userDir` caveat**: a shared `userDir` accumulates
-Node-RED runtime/state files (e.g. `.config.runtime.json`) across runs.
-Delete the directory (or the default `~/.cache/node-red-cli`) to clear the
-cache and start fresh.
-
-### Running sandboxed in Docker 🐳
-
-`--docker [value]` re-executes the _entire_ invocation (flow resolution,
-link call, and any `--node-modules` install) inside a disposable, hardened
-Docker container instead of the host process — useful when `--node-modules`
-installs untrusted community packages, since that's a real code-execution
-surface. Works for both `<flows.json>` (from-file) and `--flow-json` modes,
-with **zero bind mounts and zero leftover host files**: the resolved flow
-and message are streamed over the container's stdin as a single JSON
-envelope, never written to disk.
-
-```bash
-node-red-cli flows.json calculate --set x=4 --set y=5 --docker
-```
-
-`<value>` is one of:
-
-- **omitted (bare flag)**: resolves/builds a locally-cached image tagged
-  `node-red-cli-sandbox:<installed node-red-cli version>`, built from
-  `node:24-slim` + a global `npm install` of this package from the public
-  npm registry. Cached by Docker forever afterward (npm registry versions
-  are immutable, so a version bump is the only thing that invalidates the
-  tag) — later runs of the same version need no network access beyond the
-  container's own sandboxed execution.
-- **`<image[:tag]>`**: use an explicit image. If it already contains the
-  sandbox entrypoint, it's used as-is; otherwise `node-red-cli` is
-  installed into a derived image (`FROM <image>` + a global npm install)
-  on first use, cached by image+version so the check/build only happens
-  once per image.
-- **`@<path>`** or an **http(s) URL**: build from a user-supplied
-  Dockerfile (local file or fetched URL), cached by content hash so an
-  unchanged Dockerfile isn't rebuilt every run.
-
-Sandboxing defaults applied to every `--docker` run:
-
-- `--rm -i` (always disposable)
-- `--network none`, unless `--node-modules` is also given (needs registry
-  access) or `--network` is passed explicitly (enables network access for a
-  flow that needs to call out, independent of installing any package) —
-  narrowest network exposure by default
-- `--read-only` root filesystem + a `/tmp` tmpfs mount
-- `--cap-drop=ALL`
-- `--security-opt=no-new-privileges`
-
-Combined with `--user-dir` + `--node-modules`, persistence uses a
-deterministic **named Docker volume** (derived from the `--user-dir` value)
-mounted inside the container, never a host bind mount — so "no stray host
-files" holds even for persistent installs.
-
-Without an explicit `--user-dir`, `--docker` also auto-probes the
-container's own `/data` for a userDir a community image already
-pre-populated with its own Node-RED node packages (e.g. the motivating
-[`ghcr.io/tbrandenburg/agentic-workflow-dev-env`](https://github.com/tbrandenburg/agentic-workflow-dev-env),
-which sets `NODE_RED_HOME=/data`) — validated by scanning `/data/node_modules`
-(including scoped `@scope/*` packages) for any `package.json` declaring a
-`"node-red"` key. This is inherently best-effort: an unrelated `/data` that
-happens to contain such a package is a (rare) false positive, and a real
-userDir laid out differently is a false negative that silently falls back
-to the ephemeral default. For a reliable, explicit alternative, pass
-`--docker-userdir <path>` to name the in-container directory directly —
-it takes precedence over the auto-probe (but is itself still overridden by
-an explicit `--user-dir`). Whichever wins, that directory is used as
-`userDir` and, like an explicit `--user-dir`, never deleted afterward.
-
-Fails fast with a clear `node-red-cli: docker unavailable: ...` error if
-the Docker CLI/daemon isn't reachable, or `node-red-cli: docker build
-failed: ...` if the image build fails (e.g. the local version isn't yet
-published to npm — use `--docker <image>` or `--docker @path` as an
-escape hatch in that case).
-
-### Agentic workflows 🤖
-
-Node-RED nodes such as [`agent`](https://www.npmjs.com/package/@tbrandenburg/node-red-agents)
-(OpenCode, `pi`) turn a `link in -> agent -> link out (return)` flow into a
-callable AI step, invoked like any other target — a JSON flow with an
-inline multiline prompt, in one command:
-
-```bash
-echo '{"payload":"Summarize this repo in one sentence.","cwd":"/repo"}' \
-  | node-red-cli --flow-json '[
-      {"id":"tab","type":"tab","label":"Agent"},
-      {"id":"ask","type":"link in","z":"tab","name":"ask","wires":[["agent"]]},
-      {"id":"agent","type":"agent","z":"tab","name":"opencode","agent":"opencode",
-       "runtime":"direct","prompt":"payload","promptType":"msg",
-       "cwd":"cwd","cwdType":"msg","wires":[["return"],[]]},
-      {"id":"return","type":"link out","z":"tab","name":"return","mode":"return"}
-    ]' ask --node-modules @tbrandenburg/node-red-agents --user-dir --timeout=120000 --format=json
-```
-
-The same flow runs sandboxed via `--docker <image>` against an image that
-already ships `opencode` + `node-red-agents`, e.g.
-[`ghcr.io/tbrandenburg/agentic-workflow-dev-env`](https://github.com/tbrandenburg/agentic-workflow-dev-env),
-which pre-installs its node packages into `/data` (`NODE_RED_HOME=/data`) —
-exactly the layout the `/data` auto-probe discovers automatically, with
-no `--node-modules`/`--user-dir` needed (`--network` is still required for
-network access, since the agent calls out to its own API):
-
-```bash
-echo '{"payload":"Summarize this repo in one sentence.","cwd":"/repo"}' \
-  | node-red-cli --flow-json '[
-      {"id":"tab","type":"tab","label":"Agent"},
-      {"id":"ask","type":"link in","z":"tab","name":"ask","wires":[["agent"]]},
-      {"id":"agent","type":"agent","z":"tab","name":"opencode","agent":"opencode",
-       "runtime":"direct","prompt":"payload","promptType":"msg",
-       "cwd":"cwd","cwdType":"msg","wires":[["return"],[]]},
-      {"id":"return","type":"link out","z":"tab","name":"return","mode":"return"}
-    ]' ask --docker ghcr.io/tbrandenburg/agentic-workflow-dev-env:latest \
-    --network --timeout=120000 --format=json
-```
-
-## Host API 🛠️
-
-The core interface is intentionally small:
-
-```js
-const { createHostLinkCaller } = require("./src/link-call");
-
-const caller = createHostLinkCaller(RED);
-
-const result = await caller.call(
-  "calculate",
-  { payload: { x: 4, y: 5 } },
-  { flow: "calculator", timeout: 5000 }
-);
-
-console.log(result.payload); // 9
-caller.close();
-```
-
-`flow` accepts either the tab ID or a unique tab label. An explicit target ID
-can be resolved across the loaded configuration without a `flow` selector; if
-`flow` is supplied, the target must belong to that tab. A target name must
-resolve to exactly one Link In, either across workspace tabs or within the
-selected tab when `flow` is supplied.
-
-`target` (the `link in` node) is also optional. If omitted, the only `link in`
-node in the resolved flow is used automatically. If no `flow` is given and
-several tabs exist, but only one `link in` node is present overall, that node
-(and its tab) is inferred and a warning is reported via the optional
-`onWarning` callback — pass one to `caller.call(...)` to observe it:
-
-```js
-const result = await caller.call(
-  undefined,
-  { payload: { x: 4, y: 5 } },
-  {
-    onWarning: (warning) => console.error(warning)
-  }
-);
-```
-
-If the target is omitted, the only workspace Link In is inferred. With no
-`flow` selector, this inference works across multiple tabs when there is only
-one workspace Link In, and reports a warning through `onWarning`. If the flow
-or target remains ambiguous, `call()` rejects with a preflight validation
-error naming what must be specified explicitly.
-
-## Technical approach 🔬
-
-Node-RED's link-call semantics use `_linkSource` to make the origin of a call
-available to a return link. This adapter sets the required stack entry on the
-host side and registers a targeted `onReceive` hook. The returned message
-resolves the Promise before the link-out node needs to resolve the caller via
-`RED.nodes.getNode(...)`.
-
-This is a lightweight compatibility layer for Node-RED 5.0.x, not a public
-runtime API. The internal semantics are therefore encapsulated behind
-`createHostLinkCaller(RED)` and should be integration-tested separately for
-each supported Node-RED version.
-
-## Preflight and limitations ⚠️
-
-Before a call, `validateTarget(RED, targetId)` checks:
-
-- target ID/name resolution, target type `link in`, and any supplied flow scope
-- instantiation of the target node
-- duplicate IDs
-- availability of the required runtime hooks
-
-Validation does not predict graph reachability or prove that a flow terminates
-or replies exactly once. Node-RED executes native Links and subflows; a flow
-that does not return rejects when the configured call timeout expires. Return
-handling relies on version-sensitive Node-RED runtime internals.
-
-## Contributing 🤝
-
-Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
-
-## Security 🔒
-
-Please report vulnerabilities responsibly — see [SECURITY.md](SECURITY.md).
-
-## License 📄
+## License
 
 MIT — see [LICENSE](LICENSE).
