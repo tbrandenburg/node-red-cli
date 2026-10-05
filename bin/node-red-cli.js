@@ -2,7 +2,6 @@
 "use strict";
 
 const fs = require("node:fs");
-const path = require("node:path");
 const { Command } = require("commander");
 const { applySetParams, parseFlowJsonParam, parseFormatParam } = require("../src/cli-params");
 const { parseNodeModulesParam, resolveUserDir } = require("../src/node-modules");
@@ -10,6 +9,7 @@ const { runFlowInvocation } = require("../src/run-envelope");
 const { resolveImage } = require("../src/docker-image");
 const { runContainer, volumeNameFor, CONTAINER_USER_DIR } = require("../src/docker-run");
 const { version } = require("../package.json");
+const { resolveFlowFile } = require("../src/flow-file");
 
 const HELP_TEXT = [
   "",
@@ -40,8 +40,9 @@ const HELP_TEXT = [
   "once, --flow-json - takes stdin for the flow definition, not for msg;",
   "in that mode msg must be built entirely from --set params.",
   "",
-  "--user-dir [path] makes Node-RED's userDir persistent/reusable across",
-  "runs instead of the default ephemeral tmpdir that is created fresh and",
+  "--userDir [path] makes Node-RED's userDir persistent/reusable across",
+  "runs (--user-dir remains a compatibility alias). Without it, the CLI uses",
+  "an ephemeral tmpdir created fresh and",
   "deleted after every invocation. Pass a path to use a specific directory,",
   "or the bare flag to use a stable cache dir ($XDG_CACHE_HOME/node-red-cli,",
   "falling back to ~/.cache/node-red-cli). A shared userDir accumulates",
@@ -51,7 +52,7 @@ const HELP_TEXT = [
   "--node-modules <name[@version]>[,...] installs any of the given",
   "Node-RED node npm packages that are missing from userDir/node_modules",
   "before the flow runs (repeatable and/or comma-separated). Requires an",
-  "explicit --user-dir (installing into an ephemeral userDir would just",
+  "explicit --userDir (installing into an ephemeral userDir would just",
   "reinstall from npm on every run). Already-installed, version-matching",
   "modules are left untouched (no network access). This runs a real",
   "`npm install`, i.e. arbitrary code execution from the configured npm",
@@ -73,7 +74,7 @@ const HELP_TEXT = [
   "which needs registry access, or --network is passed explicitly to enable",
   "network access independent of installing any package), --read-only",
   "rootfs with a /tmp tmpfs, --cap-drop=ALL, --security-opt=no-new-privileges.",
-  "When combined with --user-dir, persistence uses a named Docker volume,",
+  "When combined with --userDir, persistence uses a named Docker volume,",
   "never a host bind mount. Without --user-dir, the container's own /data",
   "is auto-probed for a pre-populated Node-RED userDir (best-effort; see",
   "--docker-userdir for a reliable, explicit alternative).",
@@ -82,14 +83,22 @@ const HELP_TEXT = [
   "the container, e.g. one a base image already pre-installs Node-RED node",
   "packages into) as the userDir, instead of the default ephemeral tmpdir or",
   "the best-effort /data auto-probe. Ignored outside --docker mode.",
-  "Precedence: --user-dir > --docker-userdir > the /data auto-probe > the",
-  "ephemeral default.",
+  "Precedence: --userDir/--user-dir > --docker-userdir > the /data auto-probe > the ephemeral default.",
+  "",
+  "--flowDir <dir> searches only that directory for a bare flow filename.",
+  "Without it, bare filenames are searched in cwd, cwd/data, cwd/.node-red,",
+  "cwd/.workflows, cwd/.node-red-cli, cwd/node-red, cwd/workflows,",
+  "cwd/node-red-cli, ~/.node-red, ~/.node-red-cli, then ~/.workflows.",
+  "Explicit paths (./, ../, absolute, or containing a separator) are exact.",
+  "With no flow filename, flows.json is discovered. --flowDir is separate",
+  "from the Node-RED runtime directory selected by --userDir.",
   "",
   "Example:",
-  '  echo \'{"payload":{"x":4,"y":5}}\' | node-red-cli flows.json calculate',
+  '  echo \'{"payload":{"x":4,"y":5}}\' | node-red-cli run flows.json calculate',
   "",
   "Equivalent using --set instead of stdin:",
-  "  node-red-cli flows.json calculate --set x=4 --set y=5 < /dev/null"
+  "  node-red-cli run flows.json calculate --set x=4 --set y=5 < /dev/null",
+  "  node-red-cli flows.json calculate --set x=4 --set y=5 < /dev/null (legacy)"
 ].join("\n");
 
 function readStdin() {
@@ -111,7 +120,8 @@ function collectNodeModules(value, previous) {
   return [...previous, value];
 }
 
-async function run(args, options) {
+async function run(args, options, command) {
+  options = command.optsWithGlobals();
   // <flows.json> and --flow-json are mutually exclusive, and both share the
   // "first positional" slot conceptually, so parse positionals manually
   // instead of relying on commander's fixed argument order: when
@@ -126,11 +136,6 @@ async function run(args, options) {
     return;
   }
 
-  if (!flowFileArg && !options.flowJson) {
-    console.error("node-red-cli: either <flows.json> or --flow-json must be given");
-    process.exitCode = 1;
-    return;
-  }
   if (flowFileArg && options.flowJson) {
     console.error("node-red-cli: <flows.json> and --flow-json are mutually exclusive");
     process.exitCode = 1;
@@ -148,9 +153,10 @@ async function run(args, options) {
       return;
     }
   } else {
-    flowFile = path.resolve(process.cwd(), flowFileArg);
-    if (!fs.existsSync(flowFile)) {
-      console.error(`node-red-cli: flow file not found: ${flowFile}`);
+    try {
+      flowFile = resolveFlowFile({ flowFileArg, flowDir: options.flowDir });
+    } catch (error) {
+      console.error(`node-red-cli: ${error.message}`);
       process.exitCode = 1;
       return;
     }
@@ -289,47 +295,58 @@ async function run(args, options) {
 
 const program = new Command();
 
+function addRunOptions(command) {
+  return command
+    .argument("[args...]", "[flows.json] [target], or [target] alone when --flow-json is given")
+    .option("--flow <tab>", "flow tab name/id to search the target in")
+    .option("--flowDir <dir>", "directory used exclusively to look up a bare flow filename")
+    .option(
+      "--flow-json <value>",
+      "flow JSON inline, '-' for stdin, or '@path' for a file; mutually exclusive with <flows.json>"
+    )
+    .option("--timeout <ms>", "call timeout in milliseconds", (value) => Number(value), 5000)
+    .option("--format <format>", "output format: json|plain", "plain")
+    .option("--set <key=value>", "set msg.payload.<key> to <value>, repeatable", collectSet, [])
+    .option("--userDir [path]", "persistent Node-RED userDir (bare flag = default cache dir)")
+    .option("--user-dir [path]", "compatibility alias for --userDir")
+    .option(
+      "--node-modules <name[@version]>",
+      "install missing Node-RED node npm package(s), comma-separated and/or repeatable; requires --userDir",
+      collectNodeModules,
+      []
+    )
+    .option(
+      "--docker [value]",
+      "run the invocation sandboxed in a disposable Docker container; bare = cached default image, " +
+        "'<image[:tag]>' = explicit image (installed into if missing), '@path'/URL = build from a Dockerfile"
+    )
+    .option(
+      "--docker-userdir <path>",
+      "in --docker mode, use <path> (inside the container) as the userDir instead of the default " +
+        "ephemeral tmpdir or the best-effort /data auto-probe; ignored outside --docker mode"
+    )
+    .option(
+      "--network",
+      "enable network access in --docker mode, independent of --node-modules (default: --network none)"
+    )
+    .action(run);
+}
+
 program
   .name("node-red-cli")
-  .usage(
-    "<flows.json>|--flow-json <value> [target] [--flow=<tab>] [--timeout=<ms>] [--set <key>=<value>]... [--format=json|plain]"
-  )
-  .argument("[args...]", "[flows.json] [target], or [target] alone when --flow-json is given (see --help)")
-  .option("--flow <tab>", "flow tab name/id to search the target in")
-  .option(
-    "--flow-json <value>",
-    "flow JSON inline, '-' for stdin, or '@path' for a file; mutually exclusive with <flows.json>"
-  )
-  .option("--timeout <ms>", "call timeout in milliseconds", (value) => Number(value), 5000)
-  .option("--format <format>", "output format: json|plain", "plain")
-  .option("--set <key=value>", "set msg.payload.<key> to <value>, repeatable", collectSet, [])
-  .option(
-    "--user-dir [path]",
-    "persistent Node-RED userDir (bare flag = default cache dir); omit for an ephemeral tmpdir"
-  )
-  .option(
-    "--node-modules <name[@version]>",
-    "install missing Node-RED node npm package(s), comma-separated and/or repeatable; requires --user-dir",
-    collectNodeModules,
-    []
-  )
-  .option(
-    "--docker [value]",
-    "run the invocation sandboxed in a disposable Docker container; bare = cached default image, " +
-      "'<image[:tag]>' = explicit image (installed into if missing), '@path'/URL = build from a Dockerfile"
-  )
-  .option(
-    "--docker-userdir <path>",
-    "in --docker mode, use <path> (inside the container) as the userDir instead of the default " +
-      "ephemeral tmpdir or the best-effort /data auto-probe; ignored outside --docker mode"
-  )
-  .option(
-    "--network",
-    "enable network access in --docker mode, independent of --node-modules (default: --network none)"
-  )
-  .addHelpText("after", HELP_TEXT)
+  .description("Invoke a Node-RED link-in flow. Use `run` for the preferred command form.")
   .version(version, "-v, --version", "print the installed node-red-cli version and exit")
-  .action(run);
+  .addHelpText("after", HELP_TEXT);
+
+addRunOptions(program).usage("<flows.json>|--flow-json <value> [target] [options]");
+program
+  .command("run")
+  .description("invoke a Node-RED flow")
+  .argument("[args...]", "[flows.json] [target], or [target] alone when --flow-json is given")
+  .action(run)
+  .usage("[flows.json] [target] [options]")
+  .configureHelp({ showGlobalOptions: true })
+  .addHelpText("after", HELP_TEXT);
 
 program.parseAsync(process.argv).catch((error) => {
   console.error(error.stack || error.message);
