@@ -56,9 +56,23 @@ function indexFlow(flow) {
     )
       warnings.push(`Link relationship on '${node.id}' is malformed; link ids must be strings`);
     if (node.type === "subflow")
-      for (const direction of ["in", "out"])
-        if (node[direction] !== undefined && !Array.isArray(node[direction]))
+      for (const direction of ["in", "out"]) {
+        if (node[direction] !== undefined && !Array.isArray(node[direction])) {
           warnings.push(`subflow ${direction} mappings on '${node.id}' are malformed`);
+          continue;
+        }
+        for (const [mappingIndex, mapping] of (node[direction] || []).entries()) {
+          if (!mapping || typeof mapping !== "object" || !Array.isArray(mapping.wires)) {
+            warnings.push(`subflow ${direction} mapping ${mappingIndex} on '${node.id}' is malformed`);
+            continue;
+          }
+          for (const wire of mapping.wires)
+            if (!wire || typeof wire !== "object" || typeof wire.id !== "string")
+              warnings.push(
+                `subflow ${direction} mapping ${mappingIndex} on '${node.id}' has a malformed wire`
+              );
+        }
+      }
     if (node?.type?.startsWith("subflow:") && !byId.has(node.type.slice("subflow:".length)))
       warnings.push(
         `subflow definition '${node.type.slice("subflow:".length)}' referenced by instance '${node.id}' was not found`
@@ -198,7 +212,18 @@ function graph(index, root, depthLimit) {
         addEdge(key, null, kind, { ...extra, targetId, unresolved: true });
         return;
       }
-      const nextContext = target.z && index.byId.get(target.z)?.type === "subflow" ? targetContext : [];
+      const targetContainer = index.byId.get(target.z);
+      const targetInSubflow = targetContainer?.type === "subflow";
+      const instanceId = targetContext.at(-1);
+      const instance = instanceId && index.byId.get(instanceId);
+      if (targetInSubflow && instance?.type !== `subflow:${targetContainer.id}`) {
+        warn(
+          `subflow template node '${targetId}' referenced by '${config.id}' has no matching instance context`
+        );
+        addEdge(key, null, kind, { ...extra, targetId, unresolved: true });
+        return;
+      }
+      const nextContext = targetInSubflow ? targetContext : [];
       const targetKey = addNode(target, nextContext, depth + 1);
       addEdge(key, targetKey, kind, extra);
     };
@@ -235,9 +260,9 @@ function graph(index, root, depthLimit) {
     const instanceId = context.at(-1);
     const instance = instanceId && index.byId.get(instanceId);
     if (definition?.type === "subflow" && instance?.type === `subflow:${definition.id}`) {
-      for (const [outputIndex, output] of (definition.out || []).entries()) {
-        for (const mapping of output.wires || []) {
-          if (mapping.id !== config.id) continue;
+      for (const [outputIndex, output] of (Array.isArray(definition.out) ? definition.out : []).entries()) {
+        for (const mapping of Array.isArray(output?.wires) ? output.wires : []) {
+          if (mapping?.id !== config.id) continue;
           const port = mapping.port || 0;
           for (const targetId of Array.isArray(instance.wires?.[outputIndex])
             ? instance.wires[outputIndex]

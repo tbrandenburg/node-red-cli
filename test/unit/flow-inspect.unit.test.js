@@ -175,3 +175,37 @@ test("malformed subflow mappings produce warnings instead of aborting traversal"
   assert.ok(result.nodes.some((node) => node.sourceId === "instance"));
   assert.ok(index.warnings.some((warning) => warning.includes("mappings")));
 });
+
+test("malformed nested output wires warn instead of throwing while expanding internals", () => {
+  const index = inspect.indexFlow([
+    { id: "tab", type: "tab" },
+    { id: "entry", type: "link in", z: "tab", wires: [["instance"]] },
+    { id: "instance", type: "subflow:broken", z: "tab", wires: [[]] },
+    {
+      id: "broken",
+      type: "subflow",
+      in: [{ wires: [{ id: "inside" }] }],
+      out: [{ wires: { id: "inside" } }]
+    },
+    { id: "inside", type: "function", z: "broken", wires: [[]] }
+  ]);
+  const result = inspect.graph(index, inspect.resolveEntry(index, "entry"), 4);
+  assert.ok(result.nodes.some((node) => node.key === "instance/inside"));
+  assert.ok(index.warnings.some((warning) => warning.includes("subflow out mapping")));
+});
+
+test("workspace references to subflow-template nodes stay unresolved without an instance", () => {
+  const index = inspect.indexFlow([
+    { id: "tab", type: "tab" },
+    { id: "entry", type: "link in", z: "tab", wires: [["inside"]] },
+    { id: "sf", type: "subflow", in: [{ wires: [{ id: "inside" }] }], out: [] },
+    { id: "inside", type: "function", z: "sf", wires: [[]] }
+  ]);
+  const result = inspect.graph(index, inspect.resolveEntry(index, "entry"), 2);
+  assert.deepEqual(
+    result.nodes.map((node) => node.sourceId),
+    ["entry"]
+  );
+  assert.ok(result.edges.some((edge) => edge.to === null && edge.unresolved && edge.targetId === "inside"));
+  assert.ok(index.warnings.some((warning) => warning.includes("no matching instance context")));
+});
