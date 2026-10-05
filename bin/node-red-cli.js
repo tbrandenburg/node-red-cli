@@ -10,6 +10,7 @@ const { resolveImage } = require("../src/docker-image");
 const { runContainer, volumeNameFor, CONTAINER_USER_DIR } = require("../src/docker-run");
 const { version } = require("../package.json");
 const { resolveFlowFile } = require("../src/flow-file");
+const flowInspect = require("../src/flow-inspect");
 
 const HELP_TEXT = [
   "",
@@ -108,6 +109,49 @@ function collectSet(value, previous) {
 /** Collects a repeatable `--node-modules` option into an array. */
 function collectNodeModules(value, previous) {
   return [...previous, value];
+}
+
+function parseDepth(value) {
+  if (!/^(0|[1-9]\d*)$/.test(value)) throw new Error("depth must be a non-negative integer");
+  const depth = Number(value);
+  if (!Number.isSafeInteger(depth)) throw new Error("depth must be a non-negative integer");
+  return depth;
+}
+
+function inspect(flowFileArg, entryArg, options, command) {
+  options = command.opts();
+  if (command.getOptionValueSource("depth") === "cli" && !entryArg) {
+    console.error("node-red-cli: --depth requires an entry");
+    process.exitCode = 1;
+    return;
+  }
+  try {
+    const flowFile = resolveFlowFile({ flowFileArg, flowDir: options.flowDir });
+    let flows;
+    try {
+      flows = JSON.parse(fs.readFileSync(flowFile, "utf8"));
+    } catch (error) {
+      throw new Error(`could not read/parse flow file '${flowFile}': ${error.message}`, { cause: error });
+    }
+    const index = flowInspect.indexFlow(flows);
+    const tab = flowInspect.resolveTab(index, options.tab);
+    const result = {
+      source: { path: flowFile },
+      ...flowInspect.inventory(index, tab),
+      warnings: index.warnings,
+      graph: null
+    };
+    if (entryArg) {
+      const entry = flowInspect.resolveEntry(index, entryArg, tab);
+      result.graph = flowInspect.graph(index, entry, options.depth);
+    }
+    process.stdout.write(
+      options.json ? `${JSON.stringify(result)}\n` : `${flowInspect.formatInspection(result)}\n`
+    );
+  } catch (error) {
+    console.error(`node-red-cli: ${error.message}`);
+    process.exitCode = 1;
+  }
 }
 
 async function run(flowFileArg, entryArg, options, command) {
@@ -322,6 +366,17 @@ const runCommand = program
   .configureHelp({ showGlobalOptions: true })
   .addHelpText("after", HELP_TEXT);
 addRunOptions(runCommand);
+
+program
+  .command("inspect")
+  .description("inspect a Node-RED flow-file without running it")
+  .argument("[flow-file]", "local Node-RED flow JSON file")
+  .argument("[entry]", "workspace Link In id or unique name")
+  .option("--tab <id|label>", "workspace tab id or unique label")
+  .option("--flow-dir <dir>", "directory for a bare flow-file name")
+  .option("--depth <n>", "maximum graph depth from entry", parseDepth, 1)
+  .option("--json", "emit machine-readable JSON")
+  .action(inspect);
 
 program.parseAsync(process.argv).catch((error) => {
   console.error(error.stack || error.message);

@@ -125,3 +125,62 @@ test("canonical user-dir preserves explicit and stable-cache behavior", (t) => {
   assert.equal(success(["run", fixture, "--user-dir", "--set", "x=4", "--set", "y=5"], project), "9");
   assert.ok(fs.existsSync(path.join(project.home, ".cache", "node-red-cli")));
 });
+
+test("inspect emits static inventory and bounded graph JSON without runtime state", (t) => {
+  const project = createProject(t);
+  const inspectFixture = path.join(root, "test/fixtures/inspect.flows.json");
+  const help = invoke(["--help"], project);
+  assert.match(help.stdout, /inspect/);
+  const inspectHelp = invoke(["inspect", "--help"], project);
+  assert.equal(inspectHelp.status, 0, inspectHelp.stderr);
+  assert.match(inspectHelp.stdout, /inspect \[options\]/);
+  for (const option of ["--tab", "--flow-dir", "--depth", "--json"])
+    assert.match(inspectHelp.stdout, new RegExp(option));
+  for (const option of ["--docker", "--user-dir", "--node-modules", "--output", "--flow-json", "--raw"])
+    assert.doesNotMatch(inspectHelp.stdout, new RegExp(option));
+  const rawInventory = invoke(["inspect", inspectFixture, "--json"], project);
+  assert.equal(rawInventory.status, 0, rawInventory.stderr);
+  assert.equal(rawInventory.stderr, "");
+  const inventory = JSON.parse(rawInventory.stdout);
+  assert.equal(inventory.graph, null);
+  assert.equal(inventory.entries.length, 2);
+  const graph = JSON.parse(success(["inspect", inspectFixture, "entry", "--depth", "8", "--json"], project));
+  assert.ok(graph.graph.nodes.some((node) => node.sourceId === "junction"));
+  assert.ok(graph.graph.edges.some((edge) => edge.kind === "call-dynamic" && edge.to === null));
+  assert.ok(graph.warnings.some((warning) => warning.includes("missing")));
+  assert.notEqual(invoke(["inspect", inspectFixture, "--depth", "2"], project).status, 0);
+  assert.notEqual(invoke(["inspect", inspectFixture, "entry", "--depth", "1.5"], project).status, 0);
+  assert.deepEqual(fs.readdirSync(project.home), []);
+});
+
+test("inspect reuses exact flow resolution and applies tab/depth selection", (t) => {
+  const project = createProject(t);
+  const flowDir = path.join(project.directory, "source");
+  fs.mkdirSync(flowDir);
+  fs.copyFileSync(path.join(root, "test/fixtures/inspect.flows.json"), path.join(flowDir, "plan.json"));
+  const inventory = JSON.parse(
+    success(["inspect", "plan.json", "--flow-dir", flowDir, "--tab", "Public", "--json"], project)
+  );
+  assert.deepEqual(
+    inventory.tabs.map((tab) => tab.id),
+    ["tab-a"]
+  );
+  assert.deepEqual(
+    inventory.entries.map((entry) => entry.id),
+    ["entry"]
+  );
+  fs.copyFileSync(path.join(flowDir, "plan.json"), path.join(project.directory, "explicit.json"));
+  assert.equal(JSON.parse(success(["inspect", "./explicit.json", "--json"], project)).entries.length, 2);
+  const rootOnly = JSON.parse(
+    success(["inspect", "./explicit.json", "entry", "--depth", "0", "--json"], project)
+  );
+  assert.equal(rootOnly.graph.nodes.length, 1);
+  fs.writeFileSync(path.join(project.directory, "bad.json"), "{}");
+  assert.notEqual(invoke(["inspect", "bad.json"], project).status, 0);
+  fs.writeFileSync(path.join(project.directory, "malformed.json"), "not JSON");
+  assert.notEqual(invoke(["inspect", "malformed.json"], project).status, 0);
+  const sole = JSON.parse(success(["inspect", fixture, "--json"], project));
+  assert.equal(sole.entries.length, 1);
+  assert.equal(sole.graph, null);
+  assert.notEqual(invoke(["inspect", "./absent.json"], project).status, 0);
+});

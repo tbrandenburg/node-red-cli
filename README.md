@@ -30,16 +30,36 @@ also configures the pre-push hook to run the CI checks.
 node-red-cli run [flow-file] [entry] [options]
 ```
 
-`run` is required. A **flow-file** is the local Node-RED flow JSON file, a
-**tab** is a Node-RED workspace, and an **entry** is a callable Link In node
-selected by ID or unique name. When omitted, the entry is inferred if the flow
-has only one Link In node.
+`run` invokes a flow and `inspect` describes its static topology. A
+**flow-file** is the local Node-RED flow JSON file, a **tab** is a Node-RED
+workspace, and an **entry** is a callable Link In node selected by ID or unique
+name. For `run`, an omitted entry is inferred when the flow has only one Link In
+node; `inspect` without an entry always shows inventory.
 
 ```bash
 echo '{"payload":{"x":4,"y":5}}' | node-red-cli run test/fixtures/flows.json calculate
 node-red-cli run test/fixtures/flows.json calculate --tab "Calculator Example" --set x=4 --set y=5 < /dev/null
 node-red-cli run test/fixtures/single-link-in.flows.json --set x=4 --set y=5 < /dev/null
 ```
+
+### Static inspection
+
+```bash
+node-red-cli inspect
+node-red-cli inspect plan.json
+node-red-cli inspect plan.json --tab planner
+node-red-cli inspect plan.json calculate
+node-red-cli inspect plan.json calculate --depth 3
+node-red-cli inspect plan.json calculate --depth 3 --json
+```
+
+Without an entry, `inspect` inventories tabs, workspace Link In entries, and
+Link Out(return) nodes. With an entry, it reports a bounded declared-topology
+graph. `--depth` defaults to 1 and `--tab` selects a tab by ID or unique label.
+**Inspect reports declared static topology. It does not execute Node-RED and
+does not guarantee which runtime path a message will take or whether a call
+will return.** Dynamic Link Calls (`msg.target`) and `node.linkcall` calls
+inside Function source cannot be resolved statically.
 
 ### Flow-file resolution
 
