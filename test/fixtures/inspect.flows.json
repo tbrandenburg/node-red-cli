@@ -1,0 +1,16 @@
+[
+  { "id": "tab-a", "type": "tab", "label": "Public" },
+  { "id": "tab-b", "type": "tab", "label": "Internal", "disabled": true },
+  { "id": "entry", "type": "link in", "z": "tab-a", "name": "entry", "links": [], "wires": [["fan"], ["instance-2"]] },
+  { "id": "fan", "type": "function", "z": "tab-a", "name": "fan", "func": "node.linkcall('hidden')", "wires": [["junction"], ["missing"]] },
+  { "id": "junction", "type": "junction", "z": "tab-a", "wires": [["cross"]] },
+  { "id": "cross", "type": "link out", "z": "tab-a", "links": ["internal"], "mode": "link", "wires": [] },
+  { "id": "internal", "type": "link in", "z": "tab-b", "name": "internal", "links": ["cross"], "wires": [["call"]] },
+  { "id": "call", "type": "link call", "z": "tab-b", "name": "call", "linkType": "dynamic", "links": ["entry"], "wires": [["instance"]] },
+  { "id": "instance", "type": "subflow:sf", "z": "tab-b", "name": "instance", "wires": [["return"]] },
+  { "id": "return", "type": "link out", "z": "tab-b", "mode": "return", "wires": [] },
+  { "id": "sf", "type": "subflow", "name": "Example", "in": [{ "wires": [{ "id": "sf-fn" }] }], "out": [{ "wires": [{ "id": "sf-fn", "port": 0 }] }] },
+  { "id": "sf-fn", "type": "function", "z": "sf", "wires": [["sf-return"]] },
+  { "id": "sf-return", "type": "link out", "z": "sf", "mode": "return", "wires": [] },
+  { "id": "instance-2", "type": "subflow:sf", "z": "tab-b", "name": "instance-2", "wires": [[]] }
+]
