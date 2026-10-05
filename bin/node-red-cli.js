@@ -30,7 +30,7 @@ const HELP_TEXT = [
   "json prints the full result object as JSON. plain prints only the",
   "result payload as plain text.",
   "",
-  "--flow-json <value> supplies the flow definition inline instead of the",
+  "--flow-json <value> (alias: --flowJson) supplies the flow definition instead of the",
   "<flows.json> positional argument (the two are mutually exclusive).",
   "<value> is one of:",
   '  - an inline JSON array, e.g. --flow-json \'[{"id":"a",...}]\'',
@@ -301,7 +301,7 @@ function addRunOptions(command) {
     .option("--flow <tab>", "flow tab name/id to search the target in")
     .option("--flowDir <dir>", "directory used exclusively to look up a bare flow filename")
     .option(
-      "--flow-json <value>",
+      "--flow-json, --flowJson <value>",
       "flow JSON inline, '-' for stdin, or '@path' for a file; mutually exclusive with <flows.json>"
     )
     .option("--timeout <ms>", "call timeout in milliseconds", (value) => Number(value), 5000)
@@ -338,7 +338,7 @@ program
   .version(version, "-v, --version", "print the installed node-red-cli version and exit")
   .addHelpText("after", HELP_TEXT);
 
-addRunOptions(program).usage("<flows.json>|--flow-json <value> [target] [options]");
+addRunOptions(program).usage("<flows.json>|--flow-json|--flowJson <value> [target] [options]");
 program
   .command("run")
   .description("invoke a Node-RED flow")

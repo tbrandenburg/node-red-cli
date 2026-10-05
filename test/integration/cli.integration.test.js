@@ -70,7 +70,7 @@ test("run rejects a missing explicit path instead of discovering the same filena
   assert.match(result.stderr, /flow file not found: .*\/plan\.json/);
 });
 
-test("both userDir spellings and flow-json remain available with run", (t) => {
+test("both userDir spellings and flow-json spellings remain available with run", (t) => {
   const project = createProject(t);
   successfulOutput(
     ["run", fixture, "--userDir", path.join(project.directory, "new-user"), "--set", "x=4", "--set", "y=5"],
@@ -91,4 +91,10 @@ test("both userDir spellings and flow-json remain available with run", (t) => {
   successfulOutput(["run", fixture, "--userDir", "--set", "x=4", "--set", "y=5"], project);
   assert.ok(fs.existsSync(path.join(project.home, ".cache", "node-red-cli")));
   successfulOutput(["run", "--flow-json", `@${fixture}`, "--set", "x=4", "--set", "y=5"], project);
+  successfulOutput(["run", "--flowJson", `@${fixture}`, "--set", "x=4", "--set", "y=5"], project);
+  successfulOutput(["--flowJson", `@${fixture}`, "--set", "x=4", "--set", "y=5"], project);
+
+  const help = invoke(["run", "--help"], project);
+  assert.equal(help.status, 0, help.stderr);
+  assert.match(help.stdout, /--flow-json, --flowJson <value>/);
 });

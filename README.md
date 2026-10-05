@@ -188,10 +188,11 @@ compatible alias). Omitting the value selects the stable cache directory.
 ### Passing flow JSON inline
 
 Instead of a `<flows.json>` file path, `--flow-json <value>` accepts the flow
-definition directly, so in-memory callers (tests, another Node.js process, a
-Node-RED editor "run this flow" action) never have to write a temp file just
-to satisfy this CLI's file-based API. It is mutually exclusive with a flow-file
-positional argument and bypasses local flow-file discovery. `<value>` is one of:
+definition directly. `--flowJson <value>` is a camelCase alias. In-memory
+callers (tests, another Node.js process, a Node-RED editor "run this flow"
+action) never have to write a temp file just to satisfy this CLI's file-based
+API. It is mutually exclusive with a flow-file positional argument and bypasses
+local flow-file discovery. `<value>` is one of:
 
 - an inline JSON array: `--flow-json '[{"id":"a",...}]'`
 - `-` to read the flow JSON from stdin
