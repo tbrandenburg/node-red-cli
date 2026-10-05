@@ -369,8 +369,11 @@ console.log(result.payload); // 9
 caller.close();
 ```
 
-`flow` accepts either the tab ID or the unique tab label. If omitted, the only
-existing workspace tab is selected automatically.
+`flow` accepts either the tab ID or a unique tab label. An explicit target ID
+can be resolved across the loaded configuration without a `flow` selector; if
+`flow` is supplied, the target must belong to that tab. A target name must
+resolve to exactly one Link In, either across workspace tabs or within the
+selected tab when `flow` is supplied.
 
 `target` (the `link in` node) is also optional. If omitted, the only `link in`
 node in the resolved flow is used automatically. If no `flow` is given and
@@ -388,9 +391,11 @@ const result = await caller.call(
 );
 ```
 
-If either the flow or the target remains ambiguous (more than one candidate),
-`call()` rejects with a preflight validation error naming what must be
-specified explicitly.
+If the target is omitted, the only workspace Link In is inferred. With no
+`flow` selector, this inference works across multiple tabs when there is only
+one workspace Link In, and reports a warning through `onWarning`. If the flow
+or target remains ambiguous, `call()` rejects with a preflight validation
+error naming what must be specified explicitly.
 
 ## Technical approach 🔬
 
@@ -409,15 +414,15 @@ each supported Node-RED version.
 
 Before a call, `validateTarget(RED, targetId)` checks:
 
-- target ID and target type `link in`
+- target ID/name resolution, target type `link in`, and any supplied flow scope
 - instantiation of the target node
-- missing wire targets and duplicate IDs
-- at least one reachable `link out` with `mode: "return"`
-- instantiation of reachable return nodes
+- duplicate IDs
 - availability of the required runtime hooks
 
-Validation does not prove that a flow terminates semantically or replies
-exactly once. A runtime timeout remains necessary for that.
+Validation does not predict graph reachability or prove that a flow terminates
+or replies exactly once. Node-RED executes native Links and subflows; a flow
+that does not return rejects when the configured call timeout expires. Return
+handling relies on version-sensitive Node-RED runtime internals.
 
 ## Contributing 🤝
 

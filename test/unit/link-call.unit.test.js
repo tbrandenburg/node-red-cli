@@ -4,7 +4,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const { test } = require("node:test");
-const { resolveFlow, validateTarget } = require("../../src/link-call");
+const { createHostLinkCaller, resolveFlow, validateTarget } = require("../../src/link-call");
 
 const fixtureConfigs = JSON.parse(
   fs.readFileSync(path.join(__dirname, "..", "fixtures", "flows.json"), "utf8")
@@ -40,16 +40,16 @@ test("unit: resolveFlow falls back to the only tab, but requires a selector when
   assert.match(ambiguous.errors.join("\n"), /flow must be specified/);
 });
 
-test("unit: validateTarget accepts the calculator fixture and reports its return link out", () => {
+test("unit: validateTarget accepts the calculator fixture without graph prediction", () => {
   const RED = fakeRed(fixtureConfigs);
   const result = validateTarget(RED, "calculate", { flow: "calculator" });
 
   assert.equal(result.ok, true, result.errors.join("; "));
   assert.equal(result.targetId, "calculate");
-  assert.deepEqual(result.returnLinkOutIds, ["return"]);
+  assert.equal("returnLinkOutIds" in result, false);
 });
 
-test("unit: validateTarget reports missing wire targets and duplicate node ids", () => {
+test("unit: validateTarget preserves duplicate id detection without predicting ordinary wires", () => {
   const broken = [
     ...fixtureConfigs,
     { id: "calculate", type: "link in", z: "calculator", name: "duplicate", wires: [["nowhere"]] }
@@ -59,7 +59,10 @@ test("unit: validateTarget reports missing wire targets and duplicate node ids",
 
   assert.equal(result.ok, false);
   assert.match(result.errors.join("\n"), /duplicate node id 'calculate'/);
-  assert.match(result.errors.join("\n"), /wires to missing node 'nowhere'/);
+  assert.equal(
+    result.errors.some((error) => error.includes("wires to missing node")),
+    false
+  );
 });
 
 const secondTab = { id: "second-tab", type: "tab", label: "Second" };
@@ -135,4 +138,91 @@ test("unit: validateTarget falls back within an explicitly given flow that has e
   assert.equal(result.ok, true, result.errors.join("; "));
   assert.equal(result.targetId, "calculate");
   assert.deepEqual(result.warnings, []);
+});
+
+test("unit: validateTarget reports an invalid flow selector without throwing when target is omitted", () => {
+  const result = validateTarget(fakeRed(singleLinkInConfigs), undefined, { flow: "missing-flow" });
+  assert.equal(result.ok, false);
+  assert.match(result.errors.join("\n"), /flow 'missing-flow' was not found/);
+});
+
+test("unit: explicit target ID resolves across tabs; supplied flow scopes membership", () => {
+  const RED = fakeRed([
+    ...fixtureConfigs,
+    secondTab,
+    { id: "other", type: "link in", z: "second-tab", name: "same" }
+  ]);
+  const global = validateTarget(RED, "calculate");
+  assert.equal(global.ok, true, global.errors.join("; "));
+  assert.equal(global.flowId, "calculator");
+
+  const scoped = validateTarget(RED, "calculate", { flow: "second-tab" });
+  assert.equal(scoped.ok, false);
+  assert.match(scoped.errors.join("\n"), /does not belong to flow/);
+});
+
+test("unit: unique names resolve, duplicate names reject, and IDs take precedence", () => {
+  const renamed = fixtureConfigs.map((config) =>
+    config.id === "calculate" ? { ...config, name: "named-entry" } : config
+  );
+  const subflowTemplate = [
+    { id: "subflow-template", type: "subflow", name: "Template" },
+    { id: "template-entry", type: "link in", z: "subflow-template", name: "named-entry" }
+  ];
+  const RED = fakeRed([
+    ...renamed,
+    ...subflowTemplate,
+    secondTab,
+    { id: "named-two", type: "link in", z: "second-tab", name: "named-entry" }
+  ]);
+  assert.equal(validateTarget(RED, "calculate").targetId, "calculate");
+  assert.equal(validateTarget(RED, "named-entry").ok, false);
+  assert.equal(
+    validateTarget(fakeRed([...renamed, ...subflowTemplate]), "named-entry").targetId,
+    "calculate"
+  );
+  assert.equal(
+    validateTarget(fakeRed([...singleLinkInConfigs, ...subflowTemplate]), undefined).targetId,
+    "calculate"
+  );
+  const wrongTypeId = validateTarget(
+    fakeRed([...renamed, { id: "named-entry", type: "function", z: "calculator" }]),
+    "named-entry"
+  );
+  assert.match(wrongTypeId.errors.join("\n"), /expected 'link in'/);
+  assert.equal(
+    validateTarget(
+      fakeRed([...renamed, { id: "calculate-two", type: "link in", z: "calculator", name: "named-entry" }]),
+      "named-entry",
+      { flow: "calculator" }
+    ).ok,
+    false
+  );
+});
+
+test("unit: configured targets that are not instantiated are rejected", () => {
+  const RED = fakeRed(fixtureConfigs, new Set());
+  const result = validateTarget(RED, "calculate");
+  assert.equal(result.ok, false);
+  assert.match(result.errors.join("\n"), /not instantiated in the runtime/);
+});
+
+test("unit: createHostLinkCaller checks runtime hooks before registering", () => {
+  const RED = fakeRed(fixtureConfigs);
+  delete RED.hooks;
+  assert.throws(() => createHostLinkCaller(RED), /runtime hooks are not available/);
+});
+
+test("unit: call still rejects invalid timeout and message inputs", async () => {
+  const caller = createHostLinkCaller(fakeRed(fixtureConfigs));
+  try {
+    await assert.rejects(
+      caller.call("calculate", { payload: 1 }, { timeout: 0 }),
+      /timeout must be a positive/
+    );
+    await assert.rejects(caller.call("calculate", null), /msg must be an object/);
+    await assert.rejects(caller.call("calculate", []), /msg must be an object/);
+  } finally {
+    caller.close();
+  }
 });

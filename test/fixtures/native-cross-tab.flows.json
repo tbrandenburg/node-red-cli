@@ -1,0 +1,74 @@
+[
+  { "id": "first", "type": "tab", "label": "Public" },
+  { "id": "second", "type": "tab", "label": "Internal" },
+  { "id": "entry", "type": "link in", "z": "first", "x": 100, "y": 100, "wires": [["cross"]] },
+  { "id": "cross", "type": "link out", "z": "first", "mode": "link", "links": ["internal"], "x": 200, "y": 100, "wires": [] },
+  { "id": "internal", "type": "link in", "z": "second", "links": ["cross"], "x": 100, "y": 100, "wires": [["instance"]] },
+  {
+    "id": "multiply",
+    "type": "subflow",
+    "name": "Multiply",
+    "in": [{ "x": 40, "y": 40, "wires": [{ "id": "native-calculate" }] }],
+    "out": [{ "x": 300, "y": 40, "wires": [{ "id": "native-calculate", "port": 0 }] }]
+  },
+  {
+    "id": "native-calculate",
+    "type": "function",
+    "z": "multiply",
+    "x": 200,
+    "y": 100,
+    "outputs": 1,
+    "func": "msg.payload=msg.input.a*msg.input.b;return msg;",
+    "wires": [[]]
+  },
+  { "id": "instance", "type": "subflow:multiply", "z": "second", "x": 200, "y": 100, "wires": [["native-return"]] },
+  { "id": "native-return", "type": "link out", "z": "second", "mode": "return", "links": [], "x": 300, "y": 100, "wires": [] },
+
+  { "id": "return-tab", "type": "tab", "label": "Subflow Return" },
+  { "id": "return-entry", "type": "link in", "z": "return-tab", "x": 100, "y": 100, "wires": [["return-instance"]] },
+  {
+    "id": "returning",
+    "type": "subflow",
+    "name": "Returning subflow",
+    "in": [{ "x": 40, "y": 40, "wires": [{ "id": "return-function" }] }],
+    "out": []
+  },
+  {
+    "id": "return-function",
+    "type": "function",
+    "z": "returning",
+    "x": 200,
+    "y": 100,
+    "outputs": 1,
+    "func": "msg.payload = 'returned-from-subflow'; return msg;",
+    "wires": [["subflow-return"]]
+  },
+  {
+    "id": "subflow-return",
+    "type": "link out",
+    "z": "returning",
+    "x": 300,
+    "y": 100,
+    "mode": "return",
+    "links": [],
+    "wires": []
+  },
+  { "id": "return-instance", "type": "subflow:returning", "z": "return-tab", "x": 200, "y": 100, "wires": [] }
+
+  ,{ "id": "nested-tab", "type": "tab", "label": "Nested Link Call" }
+  ,{ "id": "nested-entry", "type": "link in", "z": "nested-tab", "x": 100, "y": 100, "wires": [["native-call"]] }
+  ,{ "id": "native-call", "type": "link call", "z": "nested-tab", "x": 200, "y": 100, "links": ["inner-entry"], "linkType": "static", "wires": [["outer-return"]] }
+  ,{ "id": "outer-return", "type": "link out", "z": "nested-tab", "x": 300, "y": 100, "mode": "return", "links": [], "wires": [] }
+  ,{ "id": "inner-entry", "type": "link in", "z": "nested-tab", "x": 100, "y": 200, "wires": [["inner-function"]] }
+  ,{ "id": "inner-function", "type": "function", "z": "nested-tab", "x": 200, "y": 200, "outputs": 1, "func": "msg.payload = 'nested-complete'; return msg;", "wires": [["inner-return"]] }
+  ,{ "id": "inner-return", "type": "link out", "z": "nested-tab", "x": 300, "y": 200, "mode": "return", "links": [], "wires": [] }
+
+  ,{ "id": "timeout-tab", "type": "tab", "label": "No Return" }
+  ,{ "id": "timeout-entry", "type": "link in", "z": "timeout-tab", "x": 100, "y": 100, "wires": [] }
+
+  ,{ "id": "duplicate-tab", "type": "tab", "label": "Multiple Returns" }
+  ,{ "id": "duplicate-entry", "type": "link in", "z": "duplicate-tab", "x": 100, "y": 100, "wires": [["duplicate-function"]] }
+  ,{ "id": "duplicate-function", "type": "function", "z": "duplicate-tab", "x": 200, "y": 100, "outputs": 2, "func": "const first = RED.util.cloneMessage(msg); first.payload = 'first'; const second = RED.util.cloneMessage(msg); second.payload = 'second'; return [first, second];", "wires": [["duplicate-return-one"], ["duplicate-return-two"]] }
+  ,{ "id": "duplicate-return-one", "type": "link out", "z": "duplicate-tab", "x": 300, "y": 100, "mode": "return", "links": [], "wires": [] }
+  ,{ "id": "duplicate-return-two", "type": "link out", "z": "duplicate-tab", "x": 300, "y": 200, "mode": "return", "links": [], "wires": [] }
+]
