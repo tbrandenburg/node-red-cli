@@ -112,25 +112,20 @@ function collectNodeModules(value, previous) {
 
 async function run(flowFileArg, entryArg, options, command) {
   options = command.optsWithGlobals();
+  const hasFlowJson = options.flowJson !== undefined;
   // With inline flow JSON, the first positional represents the entry instead
   // of a flow-file; Commander still validates the two-position maximum.
-  if (options.flowJson && entryArg) {
+  if (hasFlowJson && entryArg) {
     console.error("node-red-cli: flow-file and --flow-json are mutually exclusive");
     process.exitCode = 1;
     return;
   }
-  const entry = options.flowJson ? flowFileArg || entryArg : entryArg;
-  flowFileArg = options.flowJson ? undefined : flowFileArg;
-
-  if (flowFileArg && options.flowJson) {
-    console.error("node-red-cli: flow-file and --flow-json are mutually exclusive");
-    process.exitCode = 1;
-    return;
-  }
+  const entry = hasFlowJson ? flowFileArg || entryArg : entryArg;
+  flowFileArg = hasFlowJson ? undefined : flowFileArg;
 
   let flowFile;
   let flows;
-  if (options.flowJson) {
+  if (hasFlowJson) {
     try {
       flows = await parseFlowJsonParam(options.flowJson, { readStdin });
     } catch (error) {

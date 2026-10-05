@@ -93,6 +93,13 @@ test("tab, entry inference, flow-json forms, and output modes work", (t) => {
     success(["run", "--flow-json", "-", "calculate", "--set", "x=4", "--set", "y=5"], project, inline),
     "9"
   );
+  fs.copyFileSync(fixture, path.join(project.directory, "flows.json"));
+  const emptyFlowJson = invoke(["run", "--flow-json", ""], project);
+  assert.notEqual(emptyFlowJson.status, 0);
+  assert.match(emptyFlowJson.stderr, /invalid JSON from --flow-json value/);
+  const emptyFlowJsonWithFile = invoke(["run", "--flow-json", "", "flows.json", "calculate"], project);
+  assert.notEqual(emptyFlowJsonWithFile.status, 0);
+  assert.match(emptyFlowJsonWithFile.stderr, /flow-file and --flow-json are mutually exclusive/);
   assert.notEqual(invoke(["run", "--flow-json", `@${fixture}`], project).status, 0);
   const mutuallyExclusive = invoke(["run", "--flow-json", inline, fixture, "calculate"], project);
   assert.notEqual(mutuallyExclusive.status, 0);
