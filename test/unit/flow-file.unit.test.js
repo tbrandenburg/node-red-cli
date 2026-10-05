@@ -7,86 +7,70 @@ const path = require("node:path");
 const test = require("node:test");
 const { isExplicitPath, resolveFlowFile } = require("../../src/flow-file");
 
-function temporaryDirectories() {
+function project(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "node-red-cli-flow-file-"));
   const cwd = path.join(root, "project");
-  const homeDir = path.join(root, "home");
   fs.mkdirSync(cwd);
-  fs.mkdirSync(homeDir);
-  return { root, cwd, homeDir };
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  return { root, cwd };
 }
 
-function writeFlow(directory, filename) {
+function writeFlow(directory, name = "flows.json") {
   fs.mkdirSync(directory, { recursive: true });
-  const filePath = path.join(directory, filename);
-  fs.writeFileSync(filePath, "[]\n");
-  return filePath;
+  const file = path.join(directory, name);
+  fs.writeFileSync(file, "[]\n");
+  return file;
 }
 
-test("flow-file resolution uses exact explicit relative and absolute paths", (t) => {
-  const dirs = temporaryDirectories();
-  t.after(() => fs.rmSync(dirs.root, { recursive: true, force: true }));
-  const relative = writeFlow(path.join(dirs.cwd, "nested"), "plan.json");
-  assert.equal(isExplicitPath("./nested/plan.json"), true);
-  assert.equal(resolveFlowFile({ flowFileArg: "./nested/plan.json", ...dirs }), relative);
-  assert.equal(resolveFlowFile({ flowFileArg: relative, ...dirs }), relative);
-  writeFlow(path.join(dirs.cwd, ".workflows"), "missing.json");
-  assert.throws(
-    () => resolveFlowFile({ flowFileArg: "./missing.json", ...dirs }),
-    new RegExp(`flow file not found: ${path.join(dirs.cwd, "missing.json")}`)
-  );
+test("omitted flow-file resolves flows.json in cwd or flow-dir", (t) => {
+  const dirs = project(t);
+  const cwdFlow = writeFlow(dirs.cwd);
+  assert.equal(resolveFlowFile(dirs), cwdFlow);
+  const flowDir = path.join(dirs.root, "flows");
+  const flowDirFile = writeFlow(flowDir);
+  assert.equal(resolveFlowFile({ ...dirs, flowDir }), flowDirFile);
 });
 
-test("bare file discovery uses the declared precedence from project to home", (t) => {
-  const dirs = temporaryDirectories();
-  t.after(() => fs.rmSync(dirs.root, { recursive: true, force: true }));
-  const cwdMatch = writeFlow(dirs.cwd, "plan.json");
-  writeFlow(path.join(dirs.cwd, "data"), "plan.json");
-  assert.equal(resolveFlowFile({ flowFileArg: "plan.json", ...dirs }), cwdMatch);
-
-  fs.rmSync(cwdMatch);
-  const projectLocations = [
-    "data",
-    ".node-red",
-    ".workflows",
-    ".node-red-cli",
-    "node-red",
-    "workflows",
-    "node-red-cli"
-  ];
-  const projectMatches = projectLocations.map((directory) =>
-    writeFlow(path.join(dirs.cwd, directory), "plan.json")
-  );
-  const homeLocations = [".node-red", ".node-red-cli", ".workflows"];
-  const homeMatches = homeLocations.map((directory) =>
-    writeFlow(path.join(dirs.homeDir, directory), "plan.json")
-  );
-  assert.equal(resolveFlowFile({ flowFileArg: "plan.json", ...dirs }), projectMatches[0]);
-  for (let index = 1; index < projectMatches.length; index += 1) {
-    fs.rmSync(projectMatches[index - 1]);
-    assert.equal(resolveFlowFile({ flowFileArg: "plan.json", ...dirs }), projectMatches[index]);
-  }
-  for (const filePath of projectMatches) fs.rmSync(filePath, { force: true });
-  assert.equal(resolveFlowFile({ flowFileArg: "plan.json", ...dirs }), homeMatches[0]);
-  for (let index = 1; index < homeMatches.length; index += 1) {
-    fs.rmSync(homeMatches[index - 1]);
-    assert.equal(resolveFlowFile({ flowFileArg: "plan.json", ...dirs }), homeMatches[index]);
-  }
-});
-
-test("flowDir is authoritative and omitted filename resolves flows.json", (t) => {
-  const dirs = temporaryDirectories();
-  t.after(() => fs.rmSync(dirs.root, { recursive: true, force: true }));
+test("bare filename resolves only in cwd unless flow-dir is supplied", (t) => {
+  const dirs = project(t);
+  const cwdFlow = writeFlow(dirs.cwd, "plan.json");
+  const hiddenFlow = writeFlow(path.join(dirs.cwd, ".workflows"), "hidden.json");
+  assert.equal(resolveFlowFile({ ...dirs, flowFileArg: "plan.json" }), cwdFlow);
+  assert.throws(() => resolveFlowFile({ ...dirs, flowFileArg: "hidden.json" }), /flow file not found:/);
   const flowDir = path.join(dirs.root, "custom");
-  const filePath = writeFlow(flowDir, "flows.json");
-  assert.equal(resolveFlowFile({ ...dirs, flowDir }), filePath);
+  const customFlow = writeFlow(flowDir, "plan.json");
+  assert.equal(resolveFlowFile({ ...dirs, flowFileArg: "plan.json", flowDir }), customFlow);
+  assert.throws(
+    () => resolveFlowFile({ ...dirs, flowFileArg: "hidden.json", flowDir }),
+    /flow file not found:/
+  );
+  assert.ok(fs.existsSync(hiddenFlow));
+});
+
+test("invalid flow-dir is reported and explicit path resolution never falls back", (t) => {
+  const dirs = project(t);
+  assert.throws(() => resolveFlowFile({ ...dirs, flowDir: "missing-dir" }), /flow directory not found:/);
+  const file = writeFlow(dirs.root, "not-a-dir");
+  assert.throws(() => resolveFlowFile({ ...dirs, flowDir: file }), /flow directory is not a directory:/);
   writeFlow(path.join(dirs.cwd, ".workflows"), "absent.json");
   assert.throws(
-    () => resolveFlowFile({ ...dirs, flowDir, flowFileArg: "absent.json" }),
-    new RegExp(`flow file not found: ${path.join(flowDir, "absent.json")}`)
+    () => resolveFlowFile({ ...dirs, flowFileArg: "./absent.json" }),
+    new RegExp(`flow file not found: ${path.join(dirs.cwd, "absent.json")}`)
   );
-  assert.throws(
-    () => resolveFlowFile({ ...dirs, flowFileArg: "not-there.json" }),
-    /flow file not found: 'not-there\.json' in the flow lookup locations/
-  );
+});
+
+test("explicit relative and absolute paths resolve exactly and paths must be regular files", (t) => {
+  const dirs = project(t);
+  const relative = writeFlow(path.join(dirs.cwd, "nested"), "plan.json");
+  assert.equal(resolveFlowFile({ ...dirs, flowFileArg: "nested/plan.json" }), relative);
+  assert.equal(resolveFlowFile({ ...dirs, flowFileArg: relative }), relative);
+  assert.throws(() => resolveFlowFile({ ...dirs, flowFileArg: dirs.cwd }), /not a regular file:/);
+});
+
+test("path detection recognizes POSIX and Windows separators without dot-name heuristics", () => {
+  assert.equal(isExplicitPath("plan.json"), false);
+  assert.equal(isExplicitPath(".plan.json"), false);
+  assert.equal(isExplicitPath("nested/plan.json"), true);
+  assert.equal(isExplicitPath("nested\\plan.json"), true);
+  assert.equal(isExplicitPath("/tmp/plan.json"), true);
 });

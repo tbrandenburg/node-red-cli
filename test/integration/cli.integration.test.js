@@ -16,85 +16,112 @@ function createProject(t) {
   const home = path.join(directory, "home");
   fs.mkdirSync(home);
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
-  return { directory, cwd: directory, home };
+  return { directory, home };
 }
 
-function invoke(args, { cwd, home }) {
+function invoke(args, project, input = "") {
   return spawnSync(process.execPath, [cli, ...args], {
-    cwd,
+    cwd: project.directory,
     encoding: "utf8",
-    input: "",
-    env: { ...process.env, HOME: home, XDG_CACHE_HOME: path.join(home, ".cache") }
+    input,
+    env: { ...process.env, HOME: project.home, XDG_CACHE_HOME: path.join(project.home, ".cache") }
   });
 }
 
-function successfulOutput(args, project) {
-  const result = invoke(args, project);
+function success(args, project, input = "") {
+  const result = invoke(args, project, input);
   assert.equal(result.status, 0, result.stderr);
-  assert.equal(result.stdout.trim(), "9");
+  return result.stdout.trim();
 }
 
-test("legacy and run commands use the same flow invocation", (t) => {
+test("run is mandatory and help exposes only the canonical run options", (t) => {
   const project = createProject(t);
-  successfulOutput([fixture, "calculate", "--set", "x=4", "--set", "y=5"], project);
-  successfulOutput(["run", fixture, "calculate", "--set", "x=4", "--set", "y=5"], project);
-});
-
-test("run discovers default and named flow files and honors authoritative flowDir", (t) => {
-  const project = createProject(t);
-  const workflows = path.join(project.directory, ".workflows");
-  fs.mkdirSync(workflows);
-  fs.copyFileSync(fixture, path.join(workflows, "flows.json"));
-  fs.copyFileSync(fixture, path.join(workflows, "plan.json"));
-  successfulOutput(["run", "--set", "x=4", "--set", "y=5"], project);
-  successfulOutput(["run", "--flow", "Calculator Example", "--set", "x=4", "--set", "y=5"], project);
-  successfulOutput(["run", "plan.json", "--set", "x=4", "--set", "y=5"], project);
-
-  const customDir = path.join(project.directory, "custom");
-  fs.mkdirSync(customDir);
-  fs.copyFileSync(fixture, path.join(customDir, "plan.json"));
-  fs.writeFileSync(path.join(project.directory, "plan.json"), "[]\n");
-  successfulOutput(["run", "plan.json", "--flowDir", customDir, "--set", "x=4", "--set", "y=5"], project);
-  fs.rmSync(path.join(customDir, "plan.json"));
-  const missing = invoke(["run", "plan.json", "--flowDir", customDir], project);
-  assert.notEqual(missing.status, 0);
-  assert.match(missing.stderr, /flow file not found:/);
-});
-
-test("run rejects a missing explicit path instead of discovering the same filename", (t) => {
-  const project = createProject(t);
-  fs.mkdirSync(path.join(project.directory, ".workflows"));
-  fs.copyFileSync(fixture, path.join(project.directory, ".workflows", "plan.json"));
-  const result = invoke(["run", "./plan.json"], project);
-  assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /flow file not found: .*\/plan\.json/);
-});
-
-test("both userDir spellings and flow-json spellings remain available with run", (t) => {
-  const project = createProject(t);
-  successfulOutput(
-    ["run", fixture, "--userDir", path.join(project.directory, "new-user"), "--set", "x=4", "--set", "y=5"],
-    project
-  );
-  successfulOutput(
-    ["run", fixture, "--user-dir", path.join(project.directory, "old-user"), "--set", "x=4", "--set", "y=5"],
-    project
-  );
-  const firstUserDir = path.join(project.directory, "first-user");
-  const lastUserDir = path.join(project.directory, "last-user");
-  successfulOutput(
-    ["run", fixture, "--userDir", firstUserDir, "--user-dir", lastUserDir, "--set", "x=4", "--set", "y=5"],
-    project
-  );
-  assert.equal(fs.existsSync(path.join(firstUserDir, ".config.runtime.json")), false);
-  assert.equal(fs.existsSync(path.join(lastUserDir, ".config.runtime.json")), true);
-  successfulOutput(["run", fixture, "--userDir", "--set", "x=4", "--set", "y=5"], project);
-  assert.ok(fs.existsSync(path.join(project.home, ".cache", "node-red-cli")));
-  successfulOutput(["run", "--flow-json", `@${fixture}`, "--set", "x=4", "--set", "y=5"], project);
-  successfulOutput(["run", "--flowJson", `@${fixture}`, "--set", "x=4", "--set", "y=5"], project);
-  successfulOutput(["--flowJson", `@${fixture}`, "--set", "x=4", "--set", "y=5"], project);
-
+  const rootHelp = invoke(["--help"], project);
+  assert.equal(rootHelp.status, 0, rootHelp.stderr);
+  assert.match(rootHelp.stdout, /run/);
+  assert.doesNotMatch(rootHelp.stdout, /flow-file execution/);
+  const legacy = invoke([fixture, "calculate", "--set", "x=4"], project);
+  assert.notEqual(legacy.status, 0);
   const help = invoke(["run", "--help"], project);
   assert.equal(help.status, 0, help.stderr);
-  assert.match(help.stdout, /--flow-json, --flowJson <value>/);
+  for (const flag of ["--tab", "--flow-dir", "--flow-json", "--user-dir", "--docker-user-dir", "--output"]) {
+    assert.match(help.stdout, new RegExp(flag));
+  }
+  for (const flag of ["--flow ", "--flowDir", "--flowJson", "--userDir", "--docker-userdir", "--format"]) {
+    assert.doesNotMatch(help.stdout, new RegExp(flag));
+  }
+});
+
+test("flow-file resolution uses cwd, flow-dir, defaults, and exact paths without discovery", (t) => {
+  const project = createProject(t);
+  fs.copyFileSync(fixture, path.join(project.directory, "flows.json"));
+  assert.equal(success(["run", "--set", "x=4", "--set", "y=5"], project), "9");
+  fs.unlinkSync(path.join(project.directory, "flows.json"));
+  const hidden = path.join(project.directory, ".workflows");
+  fs.mkdirSync(hidden);
+  fs.copyFileSync(fixture, path.join(hidden, "plan.json"));
+  assert.notEqual(invoke(["run", "plan.json"], project).status, 0);
+  assert.equal(
+    success(["run", "plan.json", "--flow-dir", hidden, "--set", "x=4", "--set", "y=5"], project),
+    "9"
+  );
+  assert.equal(success(["run", "./.workflows/plan.json", "--set", "x=4", "--set", "y=5"], project), "9");
+  assert.notEqual(invoke(["run", "./missing.json"], project).status, 0);
+  assert.notEqual(invoke(["run", "--flow-dir", path.join(project.directory, "missing")], project).status, 0);
+});
+
+test("tab, entry inference, flow-json forms, and output modes work", (t) => {
+  const project = createProject(t);
+  assert.equal(
+    success(
+      ["run", fixture, "calculate", "--tab", "Calculator Example", "--set", "x=4", "--set", "y=5"],
+      project
+    ),
+    "9"
+  );
+  assert.equal(success(["run", fixture, "--set", "x=4", "--set", "y=5"], project), "9");
+  assert.equal(
+    success(["run", fixture, "--output", "payload", "--set", "x=4", "--set", "y=5"], project),
+    "9"
+  );
+  const inline = fs.readFileSync(fixture, "utf8").trim();
+  assert.equal(
+    success(["run", "--flow-json", inline, "calculate", "--set", "x=4", "--set", "y=5"], project),
+    "9"
+  );
+  assert.equal(
+    success(["run", "--flow-json", "-", "calculate", "--set", "x=4", "--set", "y=5"], project, inline),
+    "9"
+  );
+  fs.copyFileSync(fixture, path.join(project.directory, "flows.json"));
+  const emptyFlowJson = invoke(["run", "--flow-json", ""], project);
+  assert.notEqual(emptyFlowJson.status, 0);
+  assert.match(emptyFlowJson.stderr, /invalid JSON from --flow-json value/);
+  const emptyFlowJsonWithFile = invoke(["run", "--flow-json", "", "flows.json", "calculate"], project);
+  assert.notEqual(emptyFlowJsonWithFile.status, 0);
+  assert.match(emptyFlowJsonWithFile.stderr, /flow-file and --flow-json are mutually exclusive/);
+  assert.notEqual(invoke(["run", "--flow-json", `@${fixture}`], project).status, 0);
+  const mutuallyExclusive = invoke(["run", "--flow-json", inline, fixture, "calculate"], project);
+  assert.notEqual(mutuallyExclusive.status, 0);
+  assert.match(mutuallyExclusive.stderr, /flow-file and --flow-json are mutually exclusive/);
+  const message = JSON.parse(
+    success(["run", fixture, "calculate", "--output", "message", "--set", "x=4", "--set", "y=5"], project)
+  );
+  assert.equal(message.payload, 9);
+  assert.notEqual(invoke(["run", fixture, "--output", "invalid"], project).status, 0);
+  for (const flag of ["--flow", "--flowJson", "--flowDir", "--userDir", "--docker-userdir", "--format"]) {
+    assert.notEqual(invoke(["run", fixture, flag], project).status, 0, `${flag} should be rejected`);
+  }
+});
+
+test("canonical user-dir preserves explicit and stable-cache behavior", (t) => {
+  const project = createProject(t);
+  const userDir = path.join(project.directory, "user-dir");
+  assert.equal(
+    success(["run", fixture, "--user-dir", userDir, "--set", "x=4", "--set", "y=5"], project),
+    "9"
+  );
+  assert.ok(fs.existsSync(path.join(userDir, ".config.runtime.json")));
+  assert.equal(success(["run", fixture, "--user-dir", "--set", "x=4", "--set", "y=5"], project), "9");
+  assert.ok(fs.existsSync(path.join(project.home, ".cache", "node-red-cli")));
 });

@@ -1,16 +1,13 @@
 "use strict";
 
 const assert = require("node:assert/strict");
-const fs = require("node:fs");
-const os = require("node:os");
-const path = require("node:path");
 const { test } = require("node:test");
 const {
   parseSetParam,
   applySetParams,
   parseFlowJsonParam,
-  parseFormatParam,
-  formatPlain
+  parseOutputParam,
+  formatPayload
 } = require("../../src/cli-params");
 
 test("unit: parseSetParam JSON-parses values when possible", () => {
@@ -53,24 +50,24 @@ test("unit: applySetParams builds a fresh object when the payload isn't a plain 
   assert.deepEqual(applySetParams([1, 2], ["x=4"]), { x: 4 });
 });
 
-test("unit: parseFormatParam accepts 'json' and 'plain'", () => {
-  assert.equal(parseFormatParam("json"), "json");
-  assert.equal(parseFormatParam("plain"), "plain");
+test("unit: parseOutputParam accepts payload and message", () => {
+  assert.equal(parseOutputParam("payload"), "payload");
+  assert.equal(parseOutputParam("message"), "message");
 });
 
-test("unit: parseFormatParam rejects unknown format values", () => {
-  assert.throws(() => parseFormatParam("xml"), /invalid --format value 'xml'/);
+test("unit: parseOutputParam rejects unknown output values", () => {
+  assert.throws(() => parseOutputParam("xml"), /invalid --output value 'xml'/);
 });
 
-test("unit: formatPlain returns strings as-is", () => {
-  assert.equal(formatPlain("hello"), "hello");
+test("unit: formatPayload returns strings as-is", () => {
+  assert.equal(formatPayload("hello"), "hello");
 });
 
-test("unit: formatPlain JSON-stringifies non-string payloads", () => {
-  assert.equal(formatPlain(9), "9");
-  assert.equal(formatPlain(true), "true");
-  assert.equal(formatPlain(null), "null");
-  assert.equal(formatPlain({ a: 1 }), '{"a":1}');
+test("unit: formatPayload JSON-stringifies non-string payloads", () => {
+  assert.equal(formatPayload(9), "9");
+  assert.equal(formatPayload(true), "true");
+  assert.equal(formatPayload(null), "null");
+  assert.equal(formatPayload({ a: 1 }), '{"a":1}');
 });
 
 test("unit: parseFlowJsonParam parses an inline JSON array", async () => {
@@ -84,20 +81,8 @@ test("unit: parseFlowJsonParam reads the flow JSON from stdin when value is '-'"
   assert.deepEqual(flows, [{ id: "a" }]);
 });
 
-test("unit: parseFlowJsonParam reads the flow JSON from a file when value is '@path'", async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "node-red-cli-flowjson-"));
-  const filePath = path.join(dir, "flows.json");
-  fs.writeFileSync(filePath, '[{"id":"b"}]');
-  try {
-    const flows = await parseFlowJsonParam(`@${filePath}`, {});
-    assert.deepEqual(flows, [{ id: "b" }]);
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test("unit: parseFlowJsonParam rejects a missing @path file with a clear error", async () => {
-  await assert.rejects(parseFlowJsonParam("@/no/such/file.json", {}), /could not read --flow-json file/);
+test("unit: parseFlowJsonParam treats @path as invalid inline JSON", async () => {
+  await assert.rejects(parseFlowJsonParam("@/no/such/file.json", {}), /invalid JSON from --flow-json value/);
 });
 
 test("unit: parseFlowJsonParam rejects invalid JSON with a clear error", async () => {

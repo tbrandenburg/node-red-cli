@@ -93,7 +93,7 @@ test("unit: resolveContainerDefaultUserDir follows symlinked scoped packages (np
 
 /**
  * Unit coverage for `resolveEffectiveUserDir`'s full 4-level precedence
- * order (see #33): explicit `--user-dir` > explicit `--docker-userdir` >
+ * order (see #33): explicit `--user-dir` > explicit `--docker-user-dir` >
  * the auto-probed `/data` default (only attempted when
  * `probeContainerDefault` is set) > the ephemeral fallback (represented
  * here as `undefined`, since the ephemeral tmpdir itself is created by the

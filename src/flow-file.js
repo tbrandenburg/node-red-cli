@@ -1,32 +1,11 @@
 "use strict";
 
 const fs = require("node:fs");
-const os = require("node:os");
 const path = require("node:path");
 
-const FLOW_DIRECTORIES = [
-  "",
-  "data",
-  ".node-red",
-  ".workflows",
-  ".node-red-cli",
-  "node-red",
-  "workflows",
-  "node-red-cli"
-];
-
-/** Returns whether a flow argument names a path rather than a discoverable filename. */
+/** A separator or absolute prefix makes the flow-file argument an exact path. */
 function isExplicitPath(value) {
-  return path.isAbsolute(value) || value.includes("/") || value.includes("\\") || value.startsWith(".");
-}
-
-function getDefaultFlowDirs({ cwd, homeDir }) {
-  return [
-    ...FLOW_DIRECTORIES.map((directory) => path.join(cwd, directory)),
-    path.join(homeDir, ".node-red"),
-    path.join(homeDir, ".node-red-cli"),
-    path.join(homeDir, ".workflows")
-  ];
+  return path.isAbsolute(value) || value.includes("/") || value.includes("\\");
 }
 
 function isFile(filePath) {
@@ -37,27 +16,30 @@ function isFile(filePath) {
   }
 }
 
-/** Resolves an explicit flow path or discovers a bare filename in fixed locations. */
-function resolveFlowFile({
-  flowFileArg = "flows.json",
-  flowDir,
-  cwd = process.cwd(),
-  homeDir = os.homedir()
-}) {
-  if (isExplicitPath(flowFileArg)) {
-    const filePath = path.resolve(cwd, flowFileArg);
-    if (isFile(filePath)) return filePath;
-    throw new Error(`flow file not found: ${filePath}`);
+/** Resolves one exact flow-file path without searching fallback locations. */
+function resolveFlowFile({ flowFileArg = "flows.json", flowDir, cwd = process.cwd() }) {
+  const filename = flowFileArg ?? "flows.json";
+  let filePath;
+
+  if (isExplicitPath(filename)) {
+    filePath = path.resolve(cwd, filename);
+  } else if (flowDir) {
+    const directory = path.resolve(cwd, flowDir);
+    let stats;
+    try {
+      stats = fs.statSync(directory);
+    } catch {
+      throw new Error(`flow directory not found: ${directory}`);
+    }
+    if (!stats.isDirectory()) throw new Error(`flow directory is not a directory: ${directory}`);
+    filePath = path.join(directory, filename);
+  } else {
+    filePath = path.join(cwd, filename);
   }
 
-  const directories = flowDir ? [path.resolve(cwd, flowDir)] : getDefaultFlowDirs({ cwd, homeDir });
-  const matches = directories.map((directory) => path.join(directory, flowFileArg)).filter(isFile);
-  if (matches.length > 0) return matches[0];
-
-  if (flowDir) {
-    throw new Error(`flow file not found: ${path.join(path.resolve(cwd, flowDir), flowFileArg)}`);
-  }
-  throw new Error(`flow file not found: '${flowFileArg}' in the flow lookup locations`);
+  if (!fs.existsSync(filePath)) throw new Error(`flow file not found: ${filePath}`);
+  if (!isFile(filePath)) throw new Error(`flow path is not a regular file: ${filePath}`);
+  return path.resolve(filePath);
 }
 
-module.exports = { isExplicitPath, getDefaultFlowDirs, resolveFlowFile };
+module.exports = { isExplicitPath, resolveFlowFile };
