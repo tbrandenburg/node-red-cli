@@ -54,7 +54,10 @@ function resolveFlow(RED, flowSelector) {
 /** Find `link in` nodes, optionally restricted to a single flow tab. */
 function findLinkIns(configs, flowId) {
   return [...configs.values()].filter(
-    (config) => config.type === "link in" && (typeof flowId === "undefined" || config.z === flowId)
+    (config) =>
+      config.type === "link in" &&
+      configs.get(config.z)?.type === "tab" &&
+      (typeof flowId === "undefined" || config.z === flowId)
   );
 }
 
@@ -102,75 +105,67 @@ function validateTarget(RED, targetSelector, { flow } = {}) {
   const flows = [...configs.values()].filter((config) => config.type === "tab");
   const targetOmitted =
     typeof targetSelector === "undefined" || targetSelector === null || targetSelector === "";
-
-  const fallback = targetOmitted ? resolveTargetFallback(configs, flows, flow) : null;
-
   let selectedFlow;
   let targetConfig;
   let selectedFlowBy;
   let warnings = [];
-
-  if (fallback) {
-    warnings = fallback.warnings;
-    if (fallback.ok) {
-      selectedFlow = fallback.flow;
-      targetConfig = fallback.targetConfig;
-      selectedFlowBy = "fallback-via-target";
-    } else {
-      errors.push(...fallback.errors);
-    }
-  } else {
-    const flowResolution = resolveFlow(RED, flow);
-    errors.push(...flowResolution.errors);
-    selectedFlow = flowResolution.flow;
-    selectedFlowBy = flowResolution.selectedBy;
-
-    if (targetOmitted && selectedFlow) {
-      const candidates = findLinkIns(configs, selectedFlow.id);
-      if (candidates.length === 1) {
-        targetConfig = candidates[0];
-      } else if (candidates.length === 0) {
-        errors.push(`no link-in nodes found in flow '${selectedFlow.id}'`);
-      } else {
-        errors.push(
-          `target must be specified because ${candidates.length} link-in nodes are present in flow '${selectedFlow.id}'`
-        );
-      }
-    }
-  }
-
   if (!targetOmitted && (typeof targetSelector !== "string" || targetSelector.length === 0)) {
     errors.push("target must be a non-empty link-in id or name");
   }
-
-  // Validate all ordinary wires before following the requested target.
-  for (const config of configs.values()) {
-    for (const output of config.wires || []) {
-      for (const destinationId of output || []) {
-        if (!configs.has(destinationId)) {
-          errors.push(`node '${config.id}' wires to missing node '${destinationId}'`);
-        }
-      }
-    }
+  const flowOmitted = typeof flow === "undefined" || flow === null || flow === "";
+  if (!flowOmitted || targetOmitted) {
+    const flowResolution = resolveFlow(RED, flow);
+    if (!flowOmitted) errors.push(...flowResolution.errors);
+    selectedFlow = flowResolution.flow;
+    selectedFlowBy = flowResolution.selectedBy;
   }
 
-  if (!targetOmitted) {
-    targetConfig = configs.get(targetSelector);
+  if (targetOmitted) {
+    if (flowOmitted) {
+      const fallback = resolveTargetFallback(configs, flows, flow);
+      warnings = fallback.warnings;
+      if (fallback.ok) {
+        targetConfig = fallback.targetConfig;
+        selectedFlow = fallback.flow;
+        selectedFlowBy = "fallback-via-target";
+      } else errors.push(...fallback.errors);
+    } else if (selectedFlow) {
+      const candidates = findLinkIns(configs, selectedFlow.id);
+      if (candidates.length === 1) targetConfig = candidates[0];
+      else if (candidates.length === 0) errors.push(`no link-in nodes found in flow '${selectedFlow.id}'`);
+      else
+        errors.push(
+          `target must be specified because ${candidates.length} link-in nodes are present in flow '${selectedFlow.id}'`
+        );
+    }
+  } else if (typeof targetSelector === "string" && targetSelector.length > 0) {
+    const idMatch = configs.get(targetSelector);
+    if (idMatch) {
+      targetConfig = idMatch;
+      if (idMatch.type !== "link in") {
+        errors.push(`target '${idMatch.id}' has type '${idMatch.type}', expected 'link in'`);
+      }
+    } else {
+      const candidates = findLinkIns(configs, selectedFlow?.id).filter(
+        (config) => config.name === targetSelector
+      );
+      if (candidates.length === 1) targetConfig = candidates[0];
+      else if (candidates.length > 1) {
+        errors.push(
+          `link in name '${targetSelector}' is ambiguous${selectedFlow ? ` in flow '${selectedFlow.id}'` : ""}`
+        );
+      } else
+        errors.push(
+          `target '${targetSelector}' was not found${selectedFlow ? ` in flow '${selectedFlow.id}'` : ""}`
+        );
+    }
+    if (targetConfig && !selectedFlow) {
+      selectedFlow = configs.get(targetConfig.z);
+      if (selectedFlow) selectedFlowBy = "target";
+    }
     if (targetConfig && selectedFlow && targetConfig.z !== selectedFlow.id) {
       errors.push(`target '${targetSelector}' does not belong to flow '${selectedFlow.id}'`);
-      targetConfig = undefined;
     }
-    if (!targetConfig && selectedFlow && typeof targetSelector === "string") {
-      const matches = [...configs.values()].filter(
-        (config) =>
-          config.type === "link in" && config.z === selectedFlow.id && config.name === targetSelector
-      );
-      if (matches.length === 1) targetConfig = matches[0];
-      else if (matches.length > 1)
-        errors.push(`link in name '${targetSelector}' is ambiguous in flow '${selectedFlow.id}'`);
-    }
-    if (!targetConfig && selectedFlow)
-      errors.push(`target '${targetSelector}' is not present in flow '${selectedFlow.id}'`);
   }
   if (targetConfig && targetConfig.type !== "link in") {
     errors.push(`target '${targetConfig.id}' has type '${targetConfig.type}', expected 'link in'`);
@@ -181,31 +176,6 @@ function validateTarget(RED, targetSelector, { flow } = {}) {
     errors.push(`target '${targetConfig.id}' is not instantiated in the runtime`);
   else if (targetNode && targetNode.type !== "link in")
     errors.push(`runtime target '${targetConfig.id}' is not a 'link in' node`);
-
-  const reachable = new Set();
-  const returnIds = new Set();
-  function walk(id) {
-    if (reachable.has(id)) return;
-    reachable.add(id);
-    const config = configs.get(id);
-    if (!config) return;
-    if (config.type === "link out" && config.mode === "return") returnIds.add(id);
-    for (const output of config.wires || []) {
-      for (const destinationId of output || []) walk(destinationId);
-    }
-  }
-  if (targetConfig) walk(targetConfig.id);
-
-  if (targetConfig && (!targetConfig.wires || targetConfig.wires.every((output) => !output?.length))) {
-    errors.push(`target '${targetConfig.id}' has no outgoing wires`);
-  }
-  if (targetConfig && returnIds.size === 0) {
-    errors.push(`target '${targetConfig.id}' has no reachable link out with mode 'return'`);
-  }
-  for (const returnId of returnIds) {
-    if (!RED.nodes.getNode(returnId))
-      errors.push(`return node '${returnId}' is not instantiated in the runtime`);
-  }
 
   if (!RED.hooks || typeof RED.hooks.add !== "function" || typeof RED.hooks.remove !== "function") {
     errors.push("Node-RED runtime hooks are not available");
@@ -219,9 +189,7 @@ function validateTarget(RED, targetSelector, { flow } = {}) {
     targetId: targetConfig?.id,
     targetName: targetConfig?.name,
     errors: [...new Set(errors)],
-    warnings: [...new Set(warnings)],
-    reachableNodeIds: [...reachable],
-    returnLinkOutIds: [...returnIds]
+    warnings: [...new Set(warnings)]
   };
 }
 
@@ -233,21 +201,21 @@ function validateTarget(RED, targetSelector, { flow } = {}) {
  * and covered by integration tests; it is not a public Node-RED call API.
  */
 function createHostLinkCaller(RED) {
+  if (!RED.hooks || typeof RED.hooks.add !== "function" || typeof RED.hooks.remove !== "function") {
+    throw new Error("Node-RED runtime hooks are not available");
+  }
+
   const callerId = `__node-red-cli-host-${crypto.randomBytes(8).toString("hex")}`;
   const pending = new Map();
-  const returnLinkOutIds = new Set();
   const hookId = `onReceive.${callerId}`;
 
-  // RED.nodes is internal. We only read the deployed node configuration;
-  // no node is added, rewired, deployed or removed.
-  RED.nodes.eachNode((config) => {
-    if (config.type === "link out" && config.mode === "return") {
-      returnLinkOutIds.add(config.id);
-    }
-  });
-
   RED.hooks.add(hookId, ({ msg, destination }) => {
-    if (!returnLinkOutIds.has(destination.id)) return;
+    const returnNode = destination?.id && RED.nodes.getNode(destination.id);
+    if (returnNode?.type !== "link out") return;
+    const configs = getConfigs(RED, []);
+    const pathNodeId = destination.node?._path?.split("/").at(-1);
+    const config = configs.get(destination.id) || configs.get(pathNodeId);
+    if (returnNode.mode !== "return" && config?.mode !== "return") return;
 
     const stack = msg?._linkSource;
     const source = stack?.[stack.length - 1];
