@@ -46,7 +46,7 @@
   },
   "dependencies": {
     "commander": "^15.0.0",
-    "node-red": "5.0.7"
+    "node-red": "5.0.8"
   },
   "overrides": {
     "qs": "6.16.0"
