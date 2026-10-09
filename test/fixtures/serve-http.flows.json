@@ -1,0 +1,48 @@
+[
+  {
+    "id": "serve-tab",
+    "type": "tab",
+    "label": "Serve HTTP",
+    "disabled": false,
+    "info": ""
+  },
+  {
+    "id": "serve-http-in",
+    "type": "http in",
+    "z": "serve-tab",
+    "name": "",
+    "url": "/hello",
+    "method": "get",
+    "upload": false,
+    "swaggerDoc": "",
+    "x": 160,
+    "y": 120,
+    "wires": [["serve-set-payload"]]
+  },
+  {
+    "id": "serve-set-payload",
+    "type": "change",
+    "z": "serve-tab",
+    "name": "Set greeting",
+    "rules": [{"t": "set", "p": "payload", "pt": "msg", "to": "hello from Node-RED", "tot": "str"}],
+    "action": "",
+    "property": "",
+    "from": "",
+    "to": "",
+    "reg": false,
+    "x": 360,
+    "y": 120,
+    "wires": [["serve-http-response"]]
+  },
+  {
+    "id": "serve-http-response",
+    "type": "http response",
+    "z": "serve-tab",
+    "name": "",
+    "statusCode": "",
+    "headers": {},
+    "x": 560,
+    "y": 120,
+    "wires": []
+  }
+]

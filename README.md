@@ -28,6 +28,7 @@ also configures the pre-push hook to run the CI checks.
 
 ```text
 node-red-cli run [flow-file] [entry] [options]
+node-red-cli serve [flow-file] [options]
 ```
 
 `run` invokes a flow and `inspect` describes its static topology. A
@@ -51,7 +52,15 @@ node-red-cli inspect plan.json --tab planner
 node-red-cli inspect plan.json calculate
 node-red-cli inspect plan.json calculate --depth 3
 node-red-cli inspect plan.json calculate --depth 3 --json
+node-red-cli inspect --flow-json '[{"id":"tab","type":"tab","label":"Demo"}]'
+node-red-cli inspect calculate --flow-json - --depth 2 --json < flows.json
 ```
+
+`inspect --flow-json <json|->` inspects inline Node-RED flow JSON or reads the
+flow definition from stdin with `--flow-json -`; it never starts the runtime or
+writes a temporary flow file. When `--flow-json` is used, the first positional
+is the optional entry (there is no flow-file positional), and `--flow-dir` is
+not applicable. Stdin is consumed only as the flow definition, not as a message.
 
 Without an entry, `inspect` inventories tabs, workspace Link In entries, and
 Link Out(return) nodes. With an entry, it reports a bounded declared-topology
@@ -60,6 +69,30 @@ graph. `--depth` defaults to 1 and `--tab` selects a tab by ID or unique label.
 does not guarantee which runtime path a message will take or whether a call
 will return.** Dynamic Link Calls (`msg.target`) and `node.linkcall` calls
 inside Function source cannot be resolved statically.
+
+### Native Node-RED server
+
+```bash
+node-red-cli serve myflow.json
+node-red-cli serve myflow.json --port 1881
+node-red-cli serve plan.json --flow-dir ./workflows --user-dir ~/.node-red
+```
+
+`serve` is a foreground convenience wrapper for the locally installed native
+`node-red myflow.json` command. It serves the Node-RED editor at
+`http://127.0.0.1:1880/` and native HTTP In endpoints. It does not expose Link
+In/Link Out nodes as HTTP endpoints. The default port is `1880`; the wrapper
+forces Node-RED to bind to `127.0.0.1` even if `settings.js` requests another
+host. Use trusted flows and configuration: native Node-RED settings and flow
+code retain their normal capabilities.
+
+Without `--user-dir`, Node-RED uses its normal persistent user directory
+(`~/.node-red` by default), including settings, credentials, runtime state and
+installed nodes. An explicit `--user-dir <dir>` selects another persistent
+directory. The editor can save deployments back to the supplied flow file, so
+keep a copy or use version control if needed. Stop the foreground server with
+Ctrl-C or SIGTERM. For advanced native Node-RED CLI options, invoke `node-red`
+directly.
 
 ### Flow-file resolution
 
