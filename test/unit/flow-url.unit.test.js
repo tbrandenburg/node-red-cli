@@ -15,7 +15,12 @@ test("explicit HTTP(S) URLs are parsed while local paths retain file treatment",
   assert.equal(parseFlowUrl("http://example.org/flows.json").protocol, "http:");
   assert.equal(parseFlowUrl("relative:flows.json"), null);
   assert.equal(parseFlowUrl("./folder:flows.json"), null);
+  assert.equal(parseFlowUrl("http:flows.json"), null);
+  assert.equal(parseFlowUrl("https:flows.json"), null);
   assert.equal(parseFlowUrl("C:\\flows.json"), null);
+  assert.throws(() => parseFlowUrl("http:/flows.json"), /invalid/);
+  assert.throws(() => parseFlowUrl("http:///flows.json"), /invalid/);
+  assert.throws(() => parseFlowUrl("https:///flows.json"), /invalid/);
   assert.throws(() => parseFlowUrl("ftp://example.org/flows.json"), /unsupported/);
   assert.throws(() => parseFlowUrl("ftp:example.org/flows.json"), /unsupported/);
   assert.throws(() => parseFlowUrl("https://%zz"), /invalid/);

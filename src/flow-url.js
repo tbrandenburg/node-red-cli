@@ -12,11 +12,17 @@ const UNSUPPORTED_SCHEMES = new Set(["data", "file", "ftp", "git", "ssh"]);
 function parseFlowUrl(value) {
   if (typeof value !== "string" || /^([a-zA-Z]):[\\/]/.test(value)) return null;
   const scheme = /^([a-zA-Z][a-zA-Z\d+.-]*):/.exec(value)?.[1];
+  if (!scheme) return null;
+  if (/^https?$/i.test(scheme)) {
+    if (/^https?:\/(?!\/)/i.test(value)) throw new Error("invalid flow URL");
+    if (!/^https?:\/\//i.test(value)) return null;
+    const authority = value.slice(scheme.length + 3).split(/[/?#]/, 1)[0];
+    if (!authority || /[\\\s]/.test(authority)) throw new Error("invalid flow URL");
+  }
   if (
-    !scheme ||
-    (!/^https?$/i.test(scheme) &&
-      !UNSUPPORTED_SCHEMES.has(scheme.toLowerCase()) &&
-      !value.slice(scheme.length + 1).startsWith("//"))
+    !/^https?$/i.test(scheme) &&
+    !UNSUPPORTED_SCHEMES.has(scheme.toLowerCase()) &&
+    !value.slice(scheme.length + 1).startsWith("//")
   )
     return null;
   if (!/^https?$/i.test(scheme)) throw new Error(`unsupported flow URL scheme '${scheme}'`);

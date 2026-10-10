@@ -254,6 +254,16 @@ test("inspect reuses exact flow resolution and applies tab/depth selection", (t)
   assert.notEqual(invoke(["inspect", "./absent.json"], project).status, 0);
 });
 
+test("colon-containing local flow filenames are not reinterpreted as HTTP URLs", (t) => {
+  const project = createProject(t);
+  for (const filename of ["http:flows.json", "https:flows.json"]) {
+    fs.copyFileSync(fixture, path.join(project.directory, filename));
+    const result = invoke(["inspect", filename, "--json"], project);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(JSON.parse(result.stdout).source.kind, "file");
+  }
+});
+
 test("run and inspect load remote flow arrays in memory from direct URLs", async (t) => {
   const project = createProject(t);
   const flow = fs.readFileSync(fixture);
