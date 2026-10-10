@@ -136,12 +136,16 @@ test("inspect emits static inventory and bounded graph JSON without runtime stat
   assert.match(inspectHelp.stdout, /inspect \[options\]/);
   for (const option of ["--tab", "--flow-dir", "--depth", "--json"])
     assert.match(inspectHelp.stdout, new RegExp(option));
-  for (const option of ["--docker", "--user-dir", "--node-modules", "--output", "--flow-json", "--raw"])
+  for (const option of ["--docker", "--user-dir", "--node-modules", "--output", "--raw"])
     assert.doesNotMatch(inspectHelp.stdout, new RegExp(option));
+  assert.match(inspectHelp.stdout, /--flow-json <json\|->/);
+  assert.match(inspectHelp.stdout, /first positional is \[entry\]/);
   const rawInventory = invoke(["inspect", inspectFixture, "--json"], project);
   assert.equal(rawInventory.status, 0, rawInventory.stderr);
   assert.equal(rawInventory.stderr, "");
   const inventory = JSON.parse(rawInventory.stdout);
+  assert.equal(inventory.source.kind, "file");
+  assert.equal(inventory.source.path, path.resolve(inspectFixture));
   assert.equal(inventory.graph, null);
   assert.equal(inventory.entries.length, 2);
   const graph = JSON.parse(success(["inspect", inspectFixture, "entry", "--depth", "8", "--json"], project));
@@ -150,6 +154,48 @@ test("inspect emits static inventory and bounded graph JSON without runtime stat
   assert.ok(graph.warnings.some((warning) => warning.includes("missing")));
   assert.notEqual(invoke(["inspect", inspectFixture, "--depth", "2"], project).status, 0);
   assert.notEqual(invoke(["inspect", inspectFixture, "entry", "--depth", "1.5"], project).status, 0);
+  assert.deepEqual(fs.readdirSync(project.home), []);
+});
+
+test("inspect accepts inline and stdin flow JSON without runtime files", (t) => {
+  const project = createProject(t);
+  const inline = fs.readFileSync(fixture, "utf8").trim();
+  const inlinePretty = success(["inspect", "--flow-json", inline], project);
+  assert.match(inlinePretty, /Flow: \[inline JSON\]/);
+  assert.match(inlinePretty, /Calculator Example/);
+  const inlineInventory = JSON.parse(success(["inspect", "--flow-json", inline, "--json"], project));
+  assert.deepEqual(inlineInventory.source, { path: null, kind: "inline" });
+  assert.equal(inlineInventory.graph, null);
+  const inlineGraph = JSON.parse(
+    success(["inspect", "--flow-json", inline, "calculate", "--depth", "2", "--json"], project)
+  );
+  assert.ok(inlineGraph.graph.nodes.some((node) => node.sourceId === "add"));
+  const stdinPretty = success(["inspect", "--flow-json", "-"], project, inline);
+  assert.match(stdinPretty, /Flow: \[stdin\]/);
+  const stdinInventory = JSON.parse(success(["inspect", "--flow-json", "-", "--json"], project, inline));
+  assert.deepEqual(stdinInventory.source, { path: null, kind: "stdin" });
+  const stdinGraph = JSON.parse(
+    success(["inspect", "calculate", "--flow-json", "-", "--depth", "2", "--json"], project, inline)
+  );
+  assert.equal(stdinGraph.graph.depth, 2);
+  assert.ok(stdinGraph.graph.nodes.some((node) => node.sourceId === "add"));
+  const rootOnly = JSON.parse(
+    success(["inspect", "calculate", "--flow-json", "-", "--depth", "0", "--json"], project, inline)
+  );
+  assert.equal(rootOnly.graph.nodes.length, 1);
+  for (const args of [
+    ["inspect", "file.json", "calculate", "--flow-json", inline],
+    ["inspect", "--flow-json", inline, "--flow-dir", project.directory],
+    ["inspect", "--flow-json", ""],
+    ["inspect", "--flow-json", "not JSON"],
+    ["inspect", "--flow-json", "{}"],
+    ["inspect", "--flow-json", "null"],
+    ["inspect", "--flow-json", `@${fixture}`],
+    ["inspect", "--flow-json", inline, "--depth", "2"]
+  ])
+    assert.notEqual(invoke(args, project).status, 0, args.join(" "));
+  const invalidStdin = invoke(["inspect", "--flow-json", "-"], project, "not JSON");
+  assert.notEqual(invalidStdin.status, 0);
   assert.deepEqual(fs.readdirSync(project.home), []);
 });
 

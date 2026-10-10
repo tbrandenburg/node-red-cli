@@ -2,6 +2,7 @@
 "use strict";
 
 const fs = require("node:fs");
+const path = require("node:path");
 const { Command } = require("commander");
 const { applySetParams, parseFlowJsonParam, parseOutputParam } = require("../src/cli-params");
 const { parseNodeModulesParam, resolveUserDir } = require("../src/node-modules");
@@ -11,6 +12,7 @@ const { runContainer, volumeNameFor, CONTAINER_USER_DIR } = require("../src/dock
 const { version } = require("../package.json");
 const { resolveFlowFile } = require("../src/flow-file");
 const flowInspect = require("../src/flow-inspect");
+const { launchNodeRed } = require("../src/serve");
 
 const HELP_TEXT = [
   "",
@@ -118,32 +120,76 @@ function parseDepth(value) {
   return depth;
 }
 
-function inspect(flowFileArg, entryArg, options, command) {
+function parsePort(value) {
+  if (!/^(0|[1-9]\d*)$/.test(value)) throw new Error("port must be an integer from 0 to 65535");
+  const port = Number(value);
+  if (!Number.isSafeInteger(port) || port > 65535) {
+    throw new Error("port must be an integer from 0 to 65535");
+  }
+  return port;
+}
+
+async function serve(flowFileArg, options) {
+  let flowFile;
+  try {
+    flowFile = resolveFlowFile({ flowFileArg, flowDir: options.flowDir });
+  } catch (error) {
+    console.error(`node-red-cli: ${error.message}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  const userDir = options.userDir ? path.resolve(options.userDir) : undefined;
+  process.exitCode = await launchNodeRed({ flowFile, userDir, port: options.port });
+}
+
+async function inspect(flowFileArg, entryArg, options, command) {
   options = command.opts();
-  if (command.getOptionValueSource("depth") === "cli" && !entryArg) {
+  const hasFlowJson = options.flowJson !== undefined;
+  if (hasFlowJson && entryArg) {
+    console.error("node-red-cli: flow-file and --flow-json are mutually exclusive");
+    process.exitCode = 1;
+    return;
+  }
+  if (hasFlowJson && options.flowDir) {
+    console.error("node-red-cli: --flow-dir cannot be used with --flow-json");
+    process.exitCode = 1;
+    return;
+  }
+  const entry = hasFlowJson ? flowFileArg || entryArg : entryArg;
+  flowFileArg = hasFlowJson ? undefined : flowFileArg;
+  if (command.getOptionValueSource("depth") === "cli" && !entry) {
     console.error("node-red-cli: --depth requires an entry");
     process.exitCode = 1;
     return;
   }
   try {
-    const flowFile = resolveFlowFile({ flowFileArg, flowDir: options.flowDir });
+    const source = hasFlowJson
+      ? { path: null, kind: options.flowJson === "-" ? "stdin" : "inline" }
+      : { path: resolveFlowFile({ flowFileArg, flowDir: options.flowDir }), kind: "file" };
     let flows;
-    try {
-      flows = JSON.parse(fs.readFileSync(flowFile, "utf8"));
-    } catch (error) {
-      throw new Error(`could not read/parse flow file '${flowFile}': ${error.message}`, { cause: error });
+    if (hasFlowJson) {
+      flows = await parseFlowJsonParam(options.flowJson, { readStdin });
+    } else {
+      try {
+        flows = JSON.parse(fs.readFileSync(source.path, "utf8"));
+      } catch (error) {
+        throw new Error(`could not read/parse flow file '${source.path}': ${error.message}`, {
+          cause: error
+        });
+      }
     }
     const index = flowInspect.indexFlow(flows);
     const tab = flowInspect.resolveTab(index, options.tab);
     const result = {
-      source: { path: flowFile },
+      source,
       ...flowInspect.inventory(index, tab),
       warnings: index.warnings,
       graph: null
     };
-    if (entryArg) {
-      const entry = flowInspect.resolveEntry(index, entryArg, tab);
-      result.graph = flowInspect.graph(index, entry, options.depth);
+    if (entry) {
+      const resolvedEntry = flowInspect.resolveEntry(index, entry, tab);
+      result.graph = flowInspect.graph(index, resolvedEntry, options.depth);
     }
     process.stdout.write(
       options.json ? `${JSON.stringify(result)}\n` : `${flowInspect.formatInspection(result)}\n`
@@ -354,7 +400,7 @@ function addRunOptions(command) {
 
 program
   .name("node-red-cli")
-  .description("Call an existing Node-RED Link In entry.")
+  .description("Call flows or serve them with native Node-RED.")
   .version(version, "-v, --version", "print the installed node-red-cli version and exit")
   .addHelpText("after", "\nRun `node-red-cli run --help` for flow invocation options.");
 const runCommand = program
@@ -368,14 +414,28 @@ const runCommand = program
 addRunOptions(runCommand);
 
 program
+  .command("serve")
+  .description("run a flow file with native Node-RED server/editor")
+  .argument("[flow-file]", "local Node-RED flows.json file")
+  .option("--flow-dir <dir>", "directory for a bare flow-file name")
+  .option("--user-dir <dir>", "native persistent Node-RED userDir")
+  .option("--port <port>", "native Node-RED HTTP port (default: 1880)", parsePort, 1880)
+  .action(serve);
+
+program
   .command("inspect")
   .description("inspect a Node-RED flow-file without running it")
   .argument("[flow-file]", "local Node-RED flow JSON file")
   .argument("[entry]", "workspace Link In id or unique name")
   .option("--tab <id|label>", "workspace tab id or unique label")
   .option("--flow-dir <dir>", "directory for a bare flow-file name")
+  .option("--flow-json <json|->", "inline flow JSON or '-' to read flow JSON from stdin")
   .option("--depth <n>", "maximum graph depth from entry", parseDepth, 1)
   .option("--json", "emit machine-readable JSON")
+  .addHelpText(
+    "after",
+    "\nWith --flow-json, the first positional is [entry]; it cannot be combined with a flow-file or --flow-dir. --flow-json - consumes stdin as flow JSON.\n"
+  )
   .action(inspect);
 
 program.parseAsync(process.argv).catch((error) => {
