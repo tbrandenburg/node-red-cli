@@ -13,6 +13,7 @@ const { version } = require("../package.json");
 const { resolveFlowFile } = require("../src/flow-file");
 const flowInspect = require("../src/flow-inspect");
 const { launchNodeRed } = require("../src/serve");
+const { parseFlowUrl, fetchFlowUrl, displayFlowUrl } = require("../src/flow-url");
 
 const HELP_TEXT = [
   "",
@@ -83,6 +84,8 @@ const HELP_TEXT = [
   "the best-effort /data auto-probe. Ignored outside --docker mode.",
   "Precedence: --user-dir > --docker-user-dir > the /data auto-probe > the ephemeral default.",
   "",
+  "The flow-file may be a local path or a direct HTTP(S) URL returning a JSON array.",
+  "URLs are fetched on the host (also with --docker); only use trusted sources.",
   "A flow-file path with a separator is exact. Bare flow-files resolve in cwd,",
   "or in --flow-dir when supplied. With no flow-file, flows.json is used in cwd",
   "or --flow-dir. --flow-dir is separate from the Node-RED runtime userDir.",
@@ -158,6 +161,21 @@ async function inspect(flowFileArg, entryArg, options, command) {
   }
   const entry = hasFlowJson ? flowFileArg || entryArg : entryArg;
   flowFileArg = hasFlowJson ? undefined : flowFileArg;
+  let flowUrl;
+  if (!hasFlowJson) {
+    try {
+      flowUrl = parseFlowUrl(flowFileArg);
+    } catch (error) {
+      console.error(`node-red-cli: ${error.message}`);
+      process.exitCode = 1;
+      return;
+    }
+  }
+  if (flowUrl && options.flowDir) {
+    console.error("node-red-cli: --flow-dir cannot be used with a flow URL");
+    process.exitCode = 1;
+    return;
+  }
   if (command.getOptionValueSource("depth") === "cli" && !entry) {
     console.error("node-red-cli: --depth requires an entry");
     process.exitCode = 1;
@@ -166,10 +184,14 @@ async function inspect(flowFileArg, entryArg, options, command) {
   try {
     const source = hasFlowJson
       ? { path: null, kind: options.flowJson === "-" ? "stdin" : "inline" }
-      : { path: resolveFlowFile({ flowFileArg, flowDir: options.flowDir }), kind: "file" };
+      : flowUrl
+        ? { path: null, kind: "url", url: displayFlowUrl(flowUrl) }
+        : { path: resolveFlowFile({ flowFileArg, flowDir: options.flowDir }), kind: "file" };
     let flows;
     if (hasFlowJson) {
       flows = await parseFlowJsonParam(options.flowJson, { readStdin });
+    } else if (flowUrl) {
+      flows = await fetchFlowUrl(flowUrl);
     } else {
       try {
         flows = JSON.parse(fs.readFileSync(source.path, "utf8"));
@@ -213,11 +235,35 @@ async function run(flowFileArg, entryArg, options, command) {
   const entry = hasFlowJson ? flowFileArg || entryArg : entryArg;
   flowFileArg = hasFlowJson ? undefined : flowFileArg;
 
+  let flowUrl;
+  if (!hasFlowJson) {
+    try {
+      flowUrl = parseFlowUrl(flowFileArg);
+    } catch (error) {
+      console.error(`node-red-cli: ${error.message}`);
+      process.exitCode = 1;
+      return;
+    }
+  }
+  if (flowUrl && options.flowDir) {
+    console.error("node-red-cli: --flow-dir cannot be used with a flow URL");
+    process.exitCode = 1;
+    return;
+  }
+
   let flowFile;
   let flows;
   if (hasFlowJson) {
     try {
       flows = await parseFlowJsonParam(options.flowJson, { readStdin });
+    } catch (error) {
+      console.error(`node-red-cli: ${error.message}`);
+      process.exitCode = 1;
+      return;
+    }
+  } else if (flowUrl) {
+    try {
+      flows = await fetchFlowUrl(flowUrl);
     } catch (error) {
       console.error(`node-red-cli: ${error.message}`);
       process.exitCode = 1;
@@ -406,7 +452,7 @@ program
 const runCommand = program
   .command("run")
   .description("invoke a Node-RED flow-file entry")
-  .argument("[flow-file]", "local Node-RED flow JSON file")
+  .argument("[flow-file]", "local flow JSON file or direct HTTP(S) flow JSON URL")
   .argument("[entry]", "Link In id or unique name")
   .usage("[flow-file] [entry] [options]")
   .configureHelp({ showGlobalOptions: true })
@@ -425,7 +471,7 @@ program
 program
   .command("inspect")
   .description("inspect a Node-RED flow-file without running it")
-  .argument("[flow-file]", "local Node-RED flow JSON file")
+  .argument("[flow-file]", "local flow JSON file or direct HTTP(S) flow JSON URL")
   .argument("[entry]", "workspace Link In id or unique name")
   .option("--tab <id|label>", "workspace tab id or unique label")
   .option("--flow-dir <dir>", "directory for a bare flow-file name")

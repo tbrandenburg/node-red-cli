@@ -32,7 +32,10 @@ node-red-cli serve [flow-file] [options]
 ```
 
 `run` invokes a flow and `inspect` describes its static topology. A
-**flow-file** is the local Node-RED flow JSON file, a **tab** is a Node-RED
+**flow-file** is a local Node-RED flow JSON file or a direct HTTP(S) URL
+returning a Complete Flow JSON array. Raw GitHub/GitLab/Gist URLs work;
+browser repository pages such as GitHub `blob` URLs return HTML and do not.
+A remote flow is fetched into memory and is not written to disk. A **tab** is a Node-RED
 workspace, and an **entry** is a callable Link In node selected by ID or unique
 name. For `run`, an omitted entry is inferred when the flow has only one Link In
 node; `inspect` without an entry always shows inventory.
@@ -61,6 +64,21 @@ flow definition from stdin with `--flow-json -`; it never starts the runtime or
 writes a temporary flow file. When `--flow-json` is used, the first positional
 is the optional entry (there is no flow-file positional), and `--flow-dir` is
 not applicable. Stdin is consumed only as the flow definition, not as a message.
+Direct flow URLs are also accepted by `run` and `inspect`; URL + `--flow-dir` is
+rejected. `run URL` still reads its message from stdin. `serve` remains
+local-file-only.
+
+Remote acquisition uses anonymous GET requests with a 15-second total timeout,
+a 10 MiB decoded-body limit, and at most five validated redirects. HTTPS is
+recommended; HTTP is unencrypted. There is no authentication, caching, or
+provider-specific URL conversion. The operator must trust a supplied URL: this
+CLI is not an SSRF-safe fetch service for URLs from untrusted users or agents.
+URL parsing and redirect checks do not prevent DNS rebinding or access to
+internal addresses; use external host allowlists and network egress controls if
+accepting URLs from others. `run URL` executes the flow's Node-RED code; use
+only trusted flows. `run --docker` can sandbox one-shot execution, but the
+source download still happens on the host; Docker `--network none` only applies
+to the flow runtime.
 
 Without an entry, `inspect` inventories tabs, workspace Link In entries, and
 Link Out(return) nodes. With an entry, it reports a bounded declared-topology
