@@ -303,11 +303,13 @@ function hasOutgoing(index, config) {
 
 function formatInspection(result) {
   const flowSource =
-    result.source.kind === "inline"
-      ? "[inline JSON]"
-      : result.source.kind === "stdin"
-        ? "[stdin]"
-        : result.source.path;
+    result.source.kind === "url"
+      ? result.source.url
+      : result.source.kind === "inline"
+        ? "[inline JSON]"
+        : result.source.kind === "stdin"
+          ? "[stdin]"
+          : result.source.path;
   const lines = [`Flow: ${flowSource}`, "", "Tabs:"];
   for (const tab of result.tabs) lines.push(`  ${tab.id}  ${tab.label}${tab.disabled ? " [disabled]" : ""}`);
   lines.push("", "Entries:");

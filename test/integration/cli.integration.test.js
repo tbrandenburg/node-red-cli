@@ -2,6 +2,8 @@
 
 const assert = require("node:assert/strict");
 const { spawnSync } = require("node:child_process");
+const { spawn } = require("node:child_process");
+const http = require("node:http");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -32,6 +34,27 @@ function success(args, project, input = "") {
   const result = invoke(args, project, input);
   assert.equal(result.status, 0, result.stderr);
   return result.stdout.trim();
+}
+
+function invokeAsync(args, project, input = "", extraEnv = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [cli, ...args], {
+      cwd: project.directory,
+      env: {
+        ...process.env,
+        HOME: project.home,
+        XDG_CACHE_HOME: path.join(project.home, ".cache"),
+        ...extraEnv
+      }
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8").on("data", (chunk) => (stdout += chunk));
+    child.stderr.setEncoding("utf8").on("data", (chunk) => (stderr += chunk));
+    child.on("error", reject);
+    child.on("close", (status) => resolve({ status, stdout, stderr }));
+    child.stdin.end(input);
+  });
 }
 
 test("run is mandatory and help exposes only the canonical run options", (t) => {
@@ -229,4 +252,98 @@ test("inspect reuses exact flow resolution and applies tab/depth selection", (t)
   assert.equal(sole.entries.length, 1);
   assert.equal(sole.graph, null);
   assert.notEqual(invoke(["inspect", "./absent.json"], project).status, 0);
+});
+
+test("run and inspect load remote flow arrays in memory from direct URLs", async (t) => {
+  const project = createProject(t);
+  const flow = fs.readFileSync(fixture);
+  const server = http.createServer((request, response) => {
+    if (request.url.startsWith("/redirect")) {
+      response.writeHead(302, { Location: "/flows.json" }).end();
+      return;
+    }
+    if (request.url.startsWith("/missing")) {
+      response.writeHead(404).end("private body");
+      return;
+    }
+    if (request.url.startsWith("/bad")) {
+      response.writeHead(200).end("not JSON");
+      return;
+    }
+    response.writeHead(200, { "Content-Type": "text/plain" }).end(flow);
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const base = `http://127.0.0.1:${server.address().port}`;
+
+  const inventory = await invokeAsync(
+    ["inspect", `${base}/flows.json?token=secret`, "calculate", "--depth", "2", "--json"],
+    project
+  );
+  assert.equal(inventory.status, 0, inventory.stderr);
+  const parsed = JSON.parse(inventory.stdout);
+  assert.deepEqual(parsed.source, { kind: "url", path: null, url: `${base}/flows.json` });
+  assert.ok(parsed.graph.nodes.some((node) => node.sourceId === "add"));
+  assert.ok(!inventory.stdout.includes("secret"));
+  assert.deepEqual(fs.readdirSync(project.home), []);
+
+  assert.equal(
+    (
+      await invokeAsync(["run", `${base}/flows.json`, "calculate", "--set", "x=4", "--set", "y=5"], project)
+    ).stdout.trim(),
+    "9"
+  );
+  assert.equal(
+    (
+      await invokeAsync(["run", `${base}/flows.json`, "calculate"], project, '{"payload":{"x":10,"y":20}}')
+    ).stdout.trim(),
+    "30"
+  );
+  assert.equal(
+    (
+      await invokeAsync(["run", `${base}/redirect`, "calculate", "--set", "x=1", "--set", "y=2"], project)
+    ).stdout.trim(),
+    "3"
+  );
+
+  const dockerBin = path.join(project.directory, "fake-bin");
+  fs.mkdirSync(dockerBin);
+  const fakeDocker = path.join(dockerBin, "docker");
+  fs.writeFileSync(
+    fakeDocker,
+    [
+      "#!/usr/bin/env node",
+      "const args = process.argv.slice(2);",
+      'if (args[0] === "info" || args[0] === "image" || args.includes("--entrypoint")) process.exit(0);',
+      'let input = "";',
+      'process.stdin.setEncoding("utf8").on("data", chunk => input += chunk).on("end", () => {',
+      "  const envelope = JSON.parse(input);",
+      '  if (!Array.isArray(envelope.flow) || !envelope.flow.some(node => node.id === "add")) process.exit(1);',
+      '  process.stdout.write("remote-flow-envelope-ok\\n");',
+      "});",
+      ""
+    ].join("\n"),
+    { mode: 0o755 }
+  );
+  const dockerRun = await invokeAsync(
+    ["run", `${base}/flows.json`, "calculate", "--docker", "mock:sandbox"],
+    project,
+    "",
+    { PATH: `${dockerBin}:${process.env.PATH}` }
+  );
+  assert.equal(dockerRun.status, 0, dockerRun.stderr);
+  assert.equal(dockerRun.stdout.trim(), "remote-flow-envelope-ok");
+
+  for (const args of [
+    ["inspect", `${base}/flows.json`, "--flow-dir", project.directory],
+    ["run", `${base}/flows.json`, "--flow-dir", project.directory],
+    ["inspect", `${base}/missing?token=secret`, "--json"],
+    ["inspect", `${base}/bad`, "--json"],
+    ["serve", `${base}/flows.json`]
+  ]) {
+    const failed = await invokeAsync(args, project);
+    assert.notEqual(failed.status, 0, args.join(" "));
+    assert.equal(failed.stdout, "", args.join(" "));
+    assert.ok(!failed.stderr.includes("secret"));
+  }
 });
