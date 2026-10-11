@@ -3,9 +3,10 @@
 [![Checks](https://github.com/tbrandenburg/node-red-cli/actions/workflows/checks.yml/badge.svg)](https://github.com/tbrandenburg/node-red-cli/actions/workflows/checks.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Call existing Node-RED flows from a CLI or Node.js host, like ordinary
-functions, using the real embedded Node-RED runtime without flow mutation or
-temporary nodes.
+Call existing Node-RED flows from a CLI or Node.js host like ordinary functions,
+using the real embedded runtime without flow mutation or temporary nodes. Use
+`serve` to run the native editor/runtime and `edit` for revision-safe changes to
+a running instance.
 
 ```bash
 node-red-cli run test/fixtures/flows.json calculate --set x=4 --set y=5 < /dev/null
@@ -28,6 +29,7 @@ also configures the pre-push hook to run the CI checks.
 
 ```text
 node-red-cli run [flow-file] [entry] [options]
+node-red-cli inspect [flow-file] [entry] [options]
 node-red-cli serve [flow-file] [options]
 node-red-cli edit <list|get|preview|apply> [options]
 ```
@@ -115,8 +117,8 @@ directly.
 
 ### Live flow editing
 
-`edit` reads and edits a running native Node-RED Admin API. It defaults to
-`http://127.0.0.1:1880`; `--admin-url` accepts an Admin API base path such as
+`edit` connects to a running native Node-RED Admin API to inspect and edit flows.
+It defaults to `http://127.0.0.1:1880`; `--admin-url` accepts an Admin API base path such as
 `https://node-red.example/admin`, and `NODE_RED_TOKEN` is sent as a bearer
 token. Cleartext HTTP is restricted to loopback. The account needs
 `flows.read` for list/get/preview and `flows.write` for apply. Treat the chosen
@@ -144,9 +146,10 @@ using `add`. If the flow has no ordinary-node example of that type, the plan
 must set `"assumeOrdinary": true`; this explicitly acknowledges that the type
 category is unverified and does not validate runtime semantics. Node-specific
 defaults and behavior remain the caller's responsibility. `connect`/`disconnect`
-name exact IDs and an existing zero-based output port; `delete` removes an ordinary node and
-cleans its ordinary wires and group membership. Adds can be connected by later
-operations in the same plan. No IDs, layouts, or output ports are generated.
+name exact IDs and an existing zero-based output port; `delete` removes an
+ordinary node and cleans its ordinary wires and group membership. Adds can be
+connected by later operations in the same plan. No IDs, layouts, or output ports
+are generated.
 
 ```json
 {
