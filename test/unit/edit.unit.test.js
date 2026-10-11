@@ -14,6 +14,8 @@ const flows = [
     type: "function",
     z: "tab-a",
     name: "Beta",
+    x: 2,
+    y: 3,
     func: "return msg",
     wires: [[]],
     credentials: { password: "private" }
@@ -191,6 +193,17 @@ test("add is deterministic, validates inputs, and supports later connect operati
   assert.match(result.warnings[0], /explicitly assumed ordinary/);
   assert.throws(
     () => transformPlan(flows, { rev: "rev", ops: [{ op: "add", node }] }),
+    /assumeOrdinary:true/
+  );
+  assert.throws(
+    () =>
+      transformPlan(flows, {
+        rev: "rev",
+        ops: [
+          { op: "add", node, assumeOrdinary: true },
+          { op: "add", node: { ...node, id: "debug-again" } }
+        ]
+      }),
     /assumeOrdinary:true/
   );
   const knownType = transformPlan(flows, {
@@ -425,6 +438,56 @@ test("config deletion refuses recursive exact references and credential edits", 
     ]
   });
   assert.equal(globalConfig.flows.find((node) => node.id === "global-config").z, "");
+  assert.throws(
+    () =>
+      transformPlan(flows, {
+        rev: "r",
+        ops: [
+          { op: "config", action: "delete", id: "cfg" },
+          {
+            op: "add",
+            node: {
+              id: "broker-after-delete",
+              type: "mqtt-broker",
+              z: "tab-a",
+              x: 10,
+              y: 20,
+              wires: []
+            },
+            assumeOrdinary: true
+          }
+        ]
+      }),
+    /config node type/
+  );
+});
+
+test("ordinary set/delete reject tab-scoped config nodes while config operations handle them", () => {
+  const scoped = {
+    id: "scoped-config",
+    type: "mqtt-broker",
+    z: "tab-a",
+    broker: "localhost",
+    port: "1883"
+  };
+  const graph = [...flows, scoped];
+  for (const op of [
+    { op: "set", id: scoped.id, fields: { broker: "new-host" } },
+    { op: "delete", id: scoped.id }
+  ])
+    assert.throws(() => transformPlan(graph, { rev: "r", ops: [op] }), /ordinary workspace/);
+
+  const configEdit = transformPlan(graph, {
+    rev: "r",
+    ops: [
+      { op: "config", action: "set", id: scoped.id, fields: { broker: "new-host" } },
+      { op: "config", action: "delete", id: scoped.id }
+    ]
+  });
+  assert.equal(
+    configEdit.flows.some((node) => node.id === scoped.id),
+    false
+  );
 });
 
 test("credential operations require schema, accept env names, and redact values", () => {

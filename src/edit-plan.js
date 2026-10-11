@@ -53,7 +53,7 @@ function transformPlan(flows, plan, { resolveCredentialValues = false, credentia
       throw new Error("unsupported or invalid plan operation");
     const handler = OPERATIONS[op.op];
     if (!handler) throw new Error(`unsupported plan operation '${op.op}'`);
-    handler(result, op, { resolveCredentialValues, credentialSchemas, warnings });
+    handler(result, op, { resolveCredentialValues, credentialSchemas, warnings, originalFlows: flows });
   }
   const structures = require("./edit-structures");
   structures.validateLinks(result);
@@ -169,9 +169,11 @@ const OPERATIONS = {
     validateJsonObject(node, "add node");
     validateAddInput(node);
     if (result.some((item) => item?.id === node.id)) throw new Error(`duplicate flow node id '${node.id}'`);
-    if (result.some((item) => item?.type === node.type && isConfigObject(item)))
+    if (context.originalFlows.some((item) => item?.type === node.type && isConfigObject(item)))
       throw new Error(`'${node.type}' is a config node type; use the config operation`);
-    if (!result.some((item) => isOrdinaryTypeExample(result, item, node.type))) {
+    if (
+      !context.originalFlows.some((item) => isOrdinaryTypeExample(context.originalFlows, item, node.type))
+    ) {
       if (op.assumeOrdinary !== true)
         throw new Error(
           `add node type '${node.type}' has no ordinary-node example; set assumeOrdinary:true to acknowledge unverified type category`
@@ -253,7 +255,11 @@ function assertOrdinaryNode(flows, node, operation) {
     !node?.z ||
     !flows.some((item) => (item?.type === "tab" || item?.type === "subflow") && item.id === node.z) ||
     WORKSPACE_EXCLUDED.has(node.type) ||
-    isSpecialType(node.type)
+    isSpecialType(node.type) ||
+    !Number.isFinite(node.x) ||
+    !Number.isFinite(node.y) ||
+    !Array.isArray(node.wires) ||
+    isConfigObject(node)
   )
     throw new Error(`${operation} is only supported for ordinary workspace nodes ('${node?.id || ""}')`);
 }
