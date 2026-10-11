@@ -29,6 +29,7 @@ also configures the pre-push hook to run the CI checks.
 ```text
 node-red-cli run [flow-file] [entry] [options]
 node-red-cli serve [flow-file] [options]
+node-red-cli edit <list|get|preview|apply> [options]
 ```
 
 `run` invokes a flow and `inspect` describes its static topology. A
@@ -111,6 +112,127 @@ directory. The editor can save deployments back to the supplied flow file, so
 keep a copy or use version control if needed. Stop the foreground server with
 Ctrl-C or SIGTERM. For advanced native Node-RED CLI options, invoke `node-red`
 directly.
+
+### Live flow editing
+
+`edit` reads and edits a running native Node-RED Admin API. It defaults to
+`http://127.0.0.1:1880`; `--admin-url` accepts an Admin API base path such as
+`https://node-red.example/admin`, and `NODE_RED_TOKEN` is sent as a bearer
+token. Cleartext HTTP is restricted to loopback. The account needs
+`flows.read` for list/get/preview and `flows.write` for apply. Treat the chosen
+instance and flows as trusted; tokens and raw Admin API error bodies are never
+printed. The account needs `nodes.read` for `add` plans and `credentials.read`
+for credential plans.
+
+```bash
+node-red-cli edit list --json
+node-red-cli edit list --tab "Calculator Example" --search function
+node-red-cli edit list --kind config --json
+node-red-cli edit get add --json
+node-red-cli edit preview plan.json --json
+node-red-cli edit apply plan.json --json
+```
+
+Plans use the opaque revision returned by list/get and an ordered operation
+array. Operations are transformed sequentially on a deep copy. `set` changes
+non-structural fields; `add` requires an explicit ID, ordinary node type (the
+caller must ensure it is installed), tab ID, coordinates and wires. The CLI
+checks installed palette types via `GET /nodes` and refuses a type already
+represented as a config node in the current flow; Node-RED's Admin API does not
+expose complete node-category schemas, so review unfamiliar contrib types before
+using `add`. If the flow has no ordinary-node example of that type, the plan
+must set `"assumeOrdinary": true`; this explicitly acknowledges that the type
+category is unverified and does not validate runtime semantics. Node-specific
+defaults and behavior remain the caller's responsibility. `connect`/`disconnect`
+name exact IDs and an existing zero-based output port; `delete` removes an ordinary node and
+cleans its ordinary wires and group membership. Adds can be connected by later
+operations in the same plan. No IDs, layouts, or output ports are generated.
+
+```json
+{
+  "rev": "opaque-revision-from-edit-list",
+  "ops": [
+    {
+      "op": "add",
+      "assumeOrdinary": true,
+      "node": { "id": "debug-new", "type": "debug", "z": "tab-id", "x": 520, "y": 180, "wires": [] }
+    },
+    { "op": "connect", "from": "existing-source-id", "port": 0, "to": "debug-new" }
+  ]
+}
+```
+
+The transformer conservatively rejects tab/group/subflow and Link types for
+these ordinary operations. Delete refuses any exact nested reference outside
+owned wires and group membership; it never cascades or bypasses. Custom node
+configuration remains the caller's responsibility. New operation families
+should register a focused handler in `src/edit-plan.js` and reuse this same
+pure preview/apply transformer.
+
+Structural plan operations are also supported: `tab` uses `add|set|reorder|delete`
+(`reorder` lists every tab ID and moves only tab slots; `delete` requires an
+empty tab); `group` uses `add|set|members|delete` and maintains both `nodes` and
+member `g`. Groups require explicit rectangles; there is no auto-layout or
+pixel-precise collision solver, so inspect the native editor and adjust the
+provided bounds as needed. `config` uses `add|set|delete`, keeps credentials out
+of plans, and only allows adding a type when an existing config-node example
+proves its shape. Config deletion scans exact nested references and refuses
+referenced objects. `link` uses `add|connect|disconnect|delete`; its `links`
+metadata stays separate from ordinary `wires`, and only Link Out(mode=link)
+reciprocity and static single-target Link Call relationships can be edited.
+Disconnect relationships and ordinary wires before deleting Link nodes.
+Dynamic/return misuse is refused.
+`subflow` supports `add-definition|set-definition|ports|add-instance|delete-instance|delete-definition`.
+Port arrays use native `{x,y,wires:[{id,port?}]}` descriptors; cyclic
+definitions, port-count mismatches, and nonempty/referenced definition deletion
+are refused. Definitions with config/internal ownership features beyond these
+validated native forms should be edited only after a supported plan can prove
+their references safe.
+
+Credential edits use environment-variable references, never literal plan values:
+
+```json
+{
+  "rev": "opaque-revision-from-edit-list",
+  "ops": [
+    {
+      "op": "credential",
+      "action": "set",
+      "id": "auth-node",
+      "values": { "username": { "env": "NR_EDIT_USERNAME" } }
+    },
+    { "op": "credential", "action": "clear", "id": "auth-node", "keys": ["password"] }
+  ]
+}
+```
+
+Preview validates environment-variable names without emitting secret values;
+apply resolves them for the deployment. Node-RED's inline credential update
+merges supplied keys, and an empty string clears only the specified key.
+Unrelated full deployments retain credentials for node IDs that remain in the
+flow. Credential schema is obtained from Node-RED's safe per-node credentials
+endpoint; credential operations therefore also require `credentials.read`.
+The endpoint may not expose schema for a node with no stored credentials, in
+which case edits fail closed. Process environments may be visible to other
+local processes, so use a trusted machine and protect the Node-RED Admin API
+identity.
+
+`preview` performs a fresh v2 GET and reports a redacted diff without POSTing.
+Human-readable previews omit Function source bodies and point reviewers to the
+plan file; JSON previews include source changes with an explicit warning.
+`apply` repeats that validation against a fresh GET and makes at most one
+revision-checked `POST /flows` v2 request. It never forces or retries a deploy;
+a stale plan or HTTP 409 must be reviewed and regenerated. A successful apply
+uses a full deployment, which stops and restarts all nodes and can cause
+side-effects. A successful deployment confirms configuration acceptance, not
+that every runtime node behaved correctly. No live flow file is edited by the
+CLI; Node-RED owns persistence.
+
+The `edit list` default shows workspace nodes; `--kind config` lists config
+nodes (including global nodes, whose `tabId` and `tabLabel` are `null` and
+empty). The `src/edit-api.js` module is the shared v2 transport seam. Query and
+plan transformation logic are isolated in `src/edit-query.js` and
+`src/edit-plan.js`; operation families reuse the same revision-checked client.
 
 ### Flow-file resolution
 
