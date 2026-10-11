@@ -257,6 +257,7 @@ node-red-cli run plan.json --flow-dir ~/.workflows
 
 | Option                            | Description                                                                                                                                 |
 | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--cwd <dir>`                     | Root-level host working directory and base for local relative paths; incompatible with `run --docker`.                                      |
 | `--tab <id\|label>`               | Scope entry selection to a workspace tab ID or unique label.                                                                                |
 | `--flow-dir <dir>`                | Directory for a bare flow-file name and the default `flows.json`.                                                                           |
 | `--flow-json <json\|->`           | Use inline flow JSON, or `-` to read the flow definition from stdin. Mutually exclusive with a flow-file positional.                        |
@@ -278,6 +279,36 @@ the invocation message with `--set` rather than stdin:
 ```bash
 node-red-cli run --flow-json - calculate --set x=4 --set y=5 < test/fixtures/flows.json
 ```
+
+### Working directory
+
+The root-level `--cwd <dir>` option selects the host process working directory
+for local relative paths and host flow execution. It can appear before or after
+the command and its positional arguments. A relative value is resolved against
+the directory from which `node-red-cli` was invoked; the directory must exist.
+Without `--cwd`, the CLI does not change the process directory. This option does
+not change `HOME`, Node-RED module lookup, or a remote server's working directory.
+
+```bash
+# Keep a flow file in a central location while running its code in a project:
+node-red-cli run /opt/flows/task.json execute --cwd /workspace/project
+
+# Search for a bare flow name in a separate flow directory:
+node-red-cli run task.json execute --cwd /workspace/project --flow-dir /opt/flows
+
+# Read an edit plan relative to the selected directory; the server stays remote:
+node-red-cli edit preview changes.json --cwd /workspace/project
+```
+
+`--cwd` selects the host process directory. `--flow-dir` selects only where a
+bare flow filename (or default `flows.json`) is looked up; an explicit path
+continues to resolve directly from the effective working directory. `--user-dir`
+selects Node-RED settings, runtime state, and installed nodes: an explicit
+relative value is based on `--cwd`, the bare flag still selects its stable
+cache, and omission retains the command's normal default (ephemeral for `run`,
+Node-RED's native default for `serve`). `--cwd` cannot be combined with
+`run --docker`; the sandbox has no host directory mounts, and its working
+directory is independent.
 
 `--node-modules` runs `npm install` and therefore executes package code from the
 configured registry. Use trusted packages only. Docker mode uses a read-only

@@ -431,6 +431,94 @@ test("edit acceptance on a native serve process: queries, preview, deploy, stale
   assert.equal(await (await fetch(`http://127.0.0.1:${port}/hello`)).text(), "edited by native apply");
 });
 
+test("edit preview and apply resolve relative plan paths from --cwd", async (t) => {
+  const project = temporaryProject(t);
+  const caller = path.join(project.directory, "caller");
+  const selected = path.join(project.directory, "project");
+  fs.mkdirSync(caller);
+  fs.mkdirSync(selected);
+  const planDirectory = path.join(selected, "plans");
+  fs.mkdirSync(planDirectory);
+  const port = await freePort();
+  const server = launch(project, port);
+  t.after(async () => stop(server));
+  await waitForReady(server, port);
+  const before = await admin(port);
+  const list = spawnSync(
+    process.execPath,
+    [
+      cli,
+      "edit",
+      "--cwd",
+      path.relative(caller, selected),
+      "list",
+      "--admin-url",
+      `http://127.0.0.1:${port}`,
+      "--json"
+    ],
+    { cwd: caller, encoding: "utf8", env: { ...process.env, HOME: project.directory } }
+  );
+  assert.equal(list.status, 0, list.stderr);
+  assert.ok(JSON.parse(list.stdout).nodes.some((node) => node.id === "serve-set-payload"));
+  const get = spawnSync(
+    process.execPath,
+    [
+      cli,
+      "edit",
+      "get",
+      "serve-set-payload",
+      "--cwd",
+      path.relative(caller, selected),
+      "--admin-url",
+      `http://127.0.0.1:${port}`,
+      "--json"
+    ],
+    { cwd: caller, encoding: "utf8", env: { ...process.env, HOME: project.directory } }
+  );
+  assert.equal(get.status, 0, get.stderr);
+  assert.equal(JSON.parse(get.stdout).node.id, "serve-set-payload");
+  const planPath = path.join(planDirectory, "change.json");
+  fs.writeFileSync(
+    planPath,
+    JSON.stringify({
+      rev: before.body.rev,
+      ops: [{ op: "set", id: "serve-set-payload", fields: { name: "cwd plan applied" } }]
+    })
+  );
+  const args = [
+    "edit",
+    "preview",
+    "plans/change.json",
+    "--cwd",
+    path.relative(caller, selected),
+    "--admin-url",
+    `http://127.0.0.1:${port}`,
+    "--json"
+  ];
+  const preview = spawnSync(process.execPath, [cli, ...args], {
+    cwd: caller,
+    encoding: "utf8",
+    env: { ...process.env, HOME: project.directory }
+  });
+  assert.equal(preview.status, 0, preview.stderr);
+  assert.equal(JSON.parse(preview.stdout).deployed, false);
+  assert.equal((await admin(port)).body.rev, before.body.rev);
+
+  const apply = spawnSync(
+    process.execPath,
+    [cli, ...args.map((value, index) => (index === 1 ? "apply" : value))],
+    {
+      cwd: caller,
+      encoding: "utf8",
+      env: { ...process.env, HOME: project.directory }
+    }
+  );
+  assert.equal(apply.status, 0, apply.stderr);
+  assert.equal(JSON.parse(apply.stdout).deployed, true);
+  const after = await admin(port);
+  assert.equal(after.body.flows.find((node) => node.id === "serve-set-payload").name, "cwd plan applied");
+});
+
 test("credential operation fails closed when the runtime exposes no credential schema", async (t) => {
   const project = temporaryProject(t);
   const port = await freePort();
