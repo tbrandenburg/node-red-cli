@@ -227,6 +227,10 @@ identity.
 `preview` performs a fresh v2 GET and reports a redacted diff without POSTing.
 Human-readable previews omit Function source bodies and point reviewers to the
 plan file; JSON previews include source changes with an explicit warning.
+JSON previews add `changeCounts: { "nodes": 1, "flowMetadata": 1 }`: `nodes`
+counts changed Node-RED flow objects (including tabs, groups and config
+objects), while `flowMetadata` counts synthetic flow-level changes such as
+tab order. Human-readable summaries report these separately.
 `apply` repeats that validation against a fresh GET and makes at most one
 revision-checked `POST /flows` v2 request. It never forces or retries a deploy;
 a stale plan or HTTP 409 must be reviewed and regenerated. A successful apply

@@ -83,11 +83,21 @@ function transformPlan(flows, plan, { resolveCredentialValues = false, credentia
   if (flows.map((node) => node.id).join("\u0000") !== result.map((node) => node.id).join("\u0000"))
     changes.push({ id: "flow-order", type: "flow", action: "reordered" });
   if (changes.length === 0) throw new Error("plan does not change any flow fields");
+  const changeCounts = changes.reduce(
+    (counts, change) => {
+      counts[change.type === "flow" ? "flowMetadata" : "nodes"] += 1;
+      return counts;
+    },
+    { nodes: 0, flowMetadata: 0 }
+  );
+  const nodeCount = `${changeCounts.nodes} node${changeCounts.nodes === 1 ? "" : "s"} changed`;
+  const summary = changeCounts.flowMetadata > 0 ? `${nodeCount}; flow order changed` : nodeCount;
   return {
     flows: result,
     changes,
+    changeCounts,
     warnings,
-    summary: `${changes.length} node${changes.length === 1 ? "" : "s"} changed`
+    summary
   };
 }
 
