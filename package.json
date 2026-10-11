@@ -1,6 +1,6 @@
 {
   "name": "@tbrandenburg/node-red-cli",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Call, inspect, and revision-safely edit Node-RED flows from the CLI",
   "main": "src/link-call.js",
   "bin": {
