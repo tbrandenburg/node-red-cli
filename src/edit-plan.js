@@ -97,7 +97,8 @@ const OPERATIONS = {
   set(result, op) {
     assertOperationKeys(op, ["op", "id", "fields"]);
     if (typeof op.id !== "string" || !op.id) throw new Error("set requires an exact node id");
-    const node = findOrdinaryNode(result, op.id, "set");
+    const node = result.find((item) => item?.id === op.id);
+    if (!node) throw new Error(`node '${op.id}' was not found`);
     if (
       !op.fields ||
       typeof op.fields !== "object" ||
@@ -105,7 +106,14 @@ const OPERATIONS = {
       Object.keys(op.fields).length === 0
     )
       throw new Error("set fields must be a nonempty object");
-    validateFields(op.fields);
+    if (isLinkType(node.type)) {
+      if (Object.keys(op.fields).length !== 1 || !Object.hasOwn(op.fields, "name"))
+        throw new Error("set on Link nodes may change only the 'name' field");
+      if (typeof op.fields.name !== "string") throw new Error("Link node name must be a string");
+    } else {
+      assertOrdinaryNode(result, node, "set");
+      validateFields(op.fields);
+    }
     Object.assign(node, structuredClone(op.fields));
   },
   credential(result, op, context) {
@@ -243,13 +251,6 @@ function assertOperationKeys(op, allowed) {
     throw new Error(`invalid '${op.op}' operation fields`);
 }
 
-function findOrdinaryNode(flows, id, operation) {
-  const node = flows.find((item) => item?.id === id);
-  if (!node) throw new Error(`node '${id}' was not found`);
-  assertOrdinaryNode(flows, node, operation);
-  return node;
-}
-
 function assertOrdinaryNode(flows, node, operation) {
   if (
     !node?.z ||
@@ -266,6 +267,10 @@ function assertOrdinaryNode(flows, node, operation) {
 
 function isSpecialType(type) {
   return typeof type !== "string" || type.startsWith("subflow:") || /^link (in|out|call)$/.test(type);
+}
+
+function isLinkType(type) {
+  return ["link in", "link out", "link call"].includes(type);
 }
 
 function resolveWire(flows, op) {

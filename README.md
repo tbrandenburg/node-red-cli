@@ -137,7 +137,11 @@ node-red-cli edit apply plan.json --json
 
 Plans use the opaque revision returned by list/get and an ordered operation
 array. Operations are transformed sequentially on a deep copy. `set` changes
-non-structural fields; `add` requires an explicit ID, ordinary node type (the
+non-structural fields on ordinary nodes. For an existing Link In, Link Out, or
+Link Call, `set` accepts only `{ "name": "..." }` by exact ID; an empty string
+clears the display name. No Link identity, mode, connection, wire, or other
+property can be changed this way. Use `link connect`/`disconnect` for structural
+Link relationship edits. `add` requires an explicit ID, ordinary node type (the
 caller must ensure it is installed), tab ID, coordinates and wires. The CLI
 checks installed palette types via `GET /nodes` and refuses a type already
 represented as a config node in the current flow; Node-RED's Admin API does not

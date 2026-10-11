@@ -904,3 +904,64 @@ test("structural edit operations preserve native Link and subflow behavior acros
   assert.equal(finalRun.status, 0, finalRun.stderr);
   assert.equal(finalRun.stdout.trim(), "nested-complete");
 });
+
+test("Link node names preview and deploy without changing relationships", async (t) => {
+  const project = temporaryNativeProject(t);
+  let port = await freePort();
+  const server = launch(project, port);
+  t.after(async () => stop(server));
+  const initial = await waitForAdmin(server, port);
+  const selectedIds = ["cross", "internal", "native-call"];
+  const names = new Map(selectedIds.map((id) => [id, `Renamed ${id}`]));
+  const plan = {
+    rev: initial.rev,
+    ops: selectedIds.map((id) => ({ op: "set", id, fields: { name: names.get(id) } }))
+  };
+  const planFile = writePlan(project, "rename-links.json", plan);
+  const preview = invoke(
+    ["edit", "preview", planFile, "--admin-url", `http://127.0.0.1:${port}`, "--json"],
+    project
+  );
+  assert.equal(preview.status, 0, preview.stderr);
+  assert.equal(JSON.parse(preview.stdout).deployed, false);
+  assert.deepEqual(await admin(port).then(({ body }) => body), initial, "preview must not deploy");
+
+  const before = structuredClone(initial.flows);
+  const applied = invoke(
+    ["edit", "apply", planFile, "--admin-url", `http://127.0.0.1:${port}`, "--json"],
+    project
+  );
+  assert.equal(applied.status, 0, applied.stderr);
+  const deployed = await admin(port);
+  assert.equal(deployed.response.status, 200);
+  assert.deepEqual(
+    deployed.body.flows.map(({ id }) => id),
+    before.map(({ id }) => id)
+  );
+  for (const oldNode of before) {
+    const updated = deployed.body.flows.find(({ id }) => id === oldNode.id);
+    const expected = names.has(oldNode.id) ? { ...oldNode, name: names.get(oldNode.id) } : oldNode;
+    assert.deepEqual(updated, expected, `only the name of ${oldNode.id} may change`);
+  }
+
+  for (const fields of [{ name: "bad", links: [] }, { name: 42 }]) {
+    const invalid = writePlan(project, "invalid-link-rename.json", {
+      rev: deployed.body.rev,
+      ops: [{ op: "set", id: "cross", fields }]
+    });
+    const rejected = invoke(
+      ["edit", "preview", invalid, "--admin-url", `http://127.0.0.1:${port}`, "--json"],
+      project
+    );
+    assert.notEqual(rejected.status, 0);
+    assert.equal((await admin(port)).body.rev, deployed.body.rev, "rejected preview must not deploy");
+  }
+
+  await stop(server);
+  port = await freePort();
+  const restarted = launch(project, port);
+  t.after(async () => stop(restarted));
+  const persisted = await waitForAdmin(restarted, port);
+  for (const id of selectedIds)
+    assert.equal(persisted.flows.find((node) => node.id === id).name, names.get(id));
+});
