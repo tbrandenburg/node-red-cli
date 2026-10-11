@@ -47,12 +47,13 @@ function transformPlan(flows, plan, { resolveCredentialValues = false, credentia
     ids.add(node.id);
   }
   const result = structuredClone(flows);
+  const warnings = [];
   for (const op of plan.ops) {
     if (!op || typeof op !== "object" || Array.isArray(op) || typeof op.op !== "string")
       throw new Error("unsupported or invalid plan operation");
     const handler = OPERATIONS[op.op];
     if (!handler) throw new Error(`unsupported plan operation '${op.op}'`);
-    handler(result, op, { resolveCredentialValues, credentialSchemas });
+    handler(result, op, { resolveCredentialValues, credentialSchemas, warnings });
   }
   const structures = require("./edit-structures");
   structures.validateLinks(result);
@@ -85,6 +86,7 @@ function transformPlan(flows, plan, { resolveCredentialValues = false, credentia
   return {
     flows: result,
     changes,
+    warnings,
     summary: `${changes.length} node${changes.length === 1 ? "" : "s"} changed`
   };
 }
@@ -159,14 +161,25 @@ const OPERATIONS = {
     }
     throw new Error("credential action must be set or clear");
   },
-  add(result, op) {
-    assertOperationKeys(op, ["op", "node"]);
+  add(result, op, context) {
+    assertOperationKeys(op, ["op", "node", "assumeOrdinary"]);
+    if (op.assumeOrdinary !== undefined && typeof op.assumeOrdinary !== "boolean")
+      throw new Error("add assumeOrdinary must be a boolean");
     const node = op.node;
     validateJsonObject(node, "add node");
     validateAddInput(node);
     if (result.some((item) => item?.id === node.id)) throw new Error(`duplicate flow node id '${node.id}'`);
     if (result.some((item) => item?.type === node.type && isConfigObject(item)))
       throw new Error(`'${node.type}' is a config node type; use the config operation`);
+    if (!result.some((item) => isOrdinaryTypeExample(result, item, node.type))) {
+      if (op.assumeOrdinary !== true)
+        throw new Error(
+          `add node type '${node.type}' has no ordinary-node example; set assumeOrdinary:true to acknowledge unverified type category`
+        );
+      context.warnings.push(
+        `node type '${node.type}' was explicitly assumed ordinary; Node-RED type category was not verified`
+      );
+    }
     if (!result.some((item) => (item?.type === "tab" || item?.type === "subflow") && item.id === node.z))
       throw new Error(`add node '${node.id}' requires an existing tab or subflow owner in z`);
     if (result.some((item) => item?.type === "subflow" && item.id === node.type))
@@ -315,6 +328,18 @@ function isConfigObject(node) {
     !Object.hasOwn(node, "x") &&
     !Object.hasOwn(node, "y") &&
     !Object.hasOwn(node, "wires")
+  );
+}
+
+function isOrdinaryTypeExample(flows, node, type) {
+  return (
+    node?.type === type &&
+    !WORKSPACE_EXCLUDED.has(node.type) &&
+    !isSpecialType(node.type) &&
+    flows.some((owner) => (owner?.type === "tab" || owner?.type === "subflow") && owner.id === node.z) &&
+    Number.isFinite(node.x) &&
+    Number.isFinite(node.y) &&
+    Array.isArray(node.wires)
   );
 }
 

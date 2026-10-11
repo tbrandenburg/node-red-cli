@@ -140,9 +140,11 @@ caller must ensure it is installed), tab ID, coordinates and wires. The CLI
 checks installed palette types via `GET /nodes` and refuses a type already
 represented as a config node in the current flow; Node-RED's Admin API does not
 expose complete node-category schemas, so review unfamiliar contrib types before
-using `add`. Node-specific defaults and behavior remain the caller's
-responsibility. `connect`/`disconnect` name exact IDs and an existing zero-based
-output port; `delete` removes an ordinary node and
+using `add`. If the flow has no ordinary-node example of that type, the plan
+must set `"assumeOrdinary": true`; this explicitly acknowledges that the type
+category is unverified and does not validate runtime semantics. Node-specific
+defaults and behavior remain the caller's responsibility. `connect`/`disconnect`
+name exact IDs and an existing zero-based output port; `delete` removes an ordinary node and
 cleans its ordinary wires and group membership. Adds can be connected by later
 operations in the same plan. No IDs, layouts, or output ports are generated.
 
@@ -152,6 +154,7 @@ operations in the same plan. No IDs, layouts, or output ports are generated.
   "ops": [
     {
       "op": "add",
+      "assumeOrdinary": true,
       "node": { "id": "debug-new", "type": "debug", "z": "tab-id", "x": 520, "y": 180, "wires": [] }
     },
     { "op": "connect", "from": "existing-source-id", "port": 0, "to": "debug-new" }

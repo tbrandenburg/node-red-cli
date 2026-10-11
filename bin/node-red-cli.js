@@ -302,13 +302,14 @@ async function editPlanFile(planFile, options, deploy) {
         valid: true,
         deployed: false,
         summary: transformed.summary,
-        warnings: previewWarnings(transformed.changes),
+        warnings: [...transformed.warnings, ...previewWarnings(transformed.changes)],
         changes: transformed.changes
       };
       printEditResult(
         result,
         options.json,
-        (data) => `Preview only — nothing deployed. ${data.summary}\n${summarizePreviewChanges(data.changes)}`
+        (data) =>
+          `Preview only — nothing deployed. ${data.summary}${data.warnings.map((warning) => `\nWarning: ${warning}`).join("")}\n${summarizePreviewChanges(data.changes)}`
       );
       return;
     }
@@ -320,13 +321,14 @@ async function editPlanFile(planFile, options, deploy) {
       deployed: true,
       previousRev: current.rev,
       rev: posted.rev,
-      summary: transformed.summary
+      summary: transformed.summary,
+      warnings: transformed.warnings
     };
     printEditResult(
       result,
       options.json,
       (data) =>
-        `Deployed revision ${data.rev} (previous ${data.previousRev}). ${data.summary}. Full deployment restarts all nodes.`
+        `Deployed revision ${data.rev} (previous ${data.previousRev}). ${data.summary}. Full deployment restarts all nodes.${data.warnings.map((warning) => `\nWarning: ${warning}`).join("")}`
     );
   } catch (error) {
     console.error(`node-red-cli: ${error.message}`);

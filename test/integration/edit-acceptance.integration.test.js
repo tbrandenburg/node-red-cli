@@ -214,6 +214,40 @@ test("edit acceptance on a native serve process: queries, preview, deploy, stale
     ["serve-tab", "second-tab"]
   );
 
+  assert.equal(
+    base.body.flows.some((node) => node.type === "mqtt-broker"),
+    false
+  );
+  const unverifiedType = {
+    id: "assumed-broker",
+    type: "mqtt-broker",
+    z: "serve-tab",
+    x: 700,
+    y: 260,
+    wires: []
+  };
+  const unverifiedPlanFile = writePlan(project, "unverified-config-type.json", {
+    rev: base.body.rev,
+    ops: [{ op: "add", node: unverifiedType }]
+  });
+  const unverified = invoke(
+    ["edit", "preview", unverifiedPlanFile, "--admin-url", `http://127.0.0.1:${port}`, "--json"],
+    project
+  );
+  assert.notEqual(unverified.status, 0);
+  assert.match(unverified.stderr, /assumeOrdinary:true/);
+  const assumedPlanFile = writePlan(project, "assumed-config-type.json", {
+    rev: base.body.rev,
+    ops: [{ op: "add", node: unverifiedType, assumeOrdinary: true }]
+  });
+  const assumed = invoke(
+    ["edit", "preview", assumedPlanFile, "--admin-url", `http://127.0.0.1:${port}`, "--json"],
+    project
+  );
+  assert.equal(assumed.status, 0, assumed.stderr);
+  assert.match(JSON.parse(assumed.stdout).warnings.join(" "), /category was not verified/);
+  assert.equal((await admin(port)).body.rev, base.body.rev, "assumption preview must not deploy");
+
   const plan = {
     rev: base.body.rev,
     ops: [

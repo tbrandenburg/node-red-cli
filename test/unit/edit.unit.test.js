@@ -8,7 +8,7 @@ const { parsePlan, transformPlan } = require("../../src/edit-plan");
 
 const flows = [
   { id: "tab-a", type: "tab", label: "Main" },
-  { id: "one", type: "inject", z: "tab-a", name: "Alpha", wires: [["two"]], x: 1 },
+  { id: "one", type: "inject", z: "tab-a", name: "Alpha", wires: [["two"]], x: 1, y: 2 },
   {
     id: "two",
     type: "function",
@@ -178,7 +178,7 @@ test("add is deterministic, validates inputs, and supports later connect operati
   const result = transformPlan(flows, {
     rev: "rev",
     ops: [
-      { op: "add", node },
+      { op: "add", node, assumeOrdinary: true },
       { op: "connect", from: "one", port: 0, to: "debug-new" }
     ]
   });
@@ -188,6 +188,16 @@ test("add is deterministic, validates inputs, and supports later connect operati
     [...flows.map((node) => node.id), "debug-new"]
   );
   assert.deepEqual(result.flows[1].wires, [["two", "debug-new"]]);
+  assert.match(result.warnings[0], /explicitly assumed ordinary/);
+  assert.throws(
+    () => transformPlan(flows, { rev: "rev", ops: [{ op: "add", node }] }),
+    /assumeOrdinary:true/
+  );
+  const knownType = transformPlan(flows, {
+    rev: "rev",
+    ops: [{ op: "add", node: { ...node, id: "another-inject", type: "inject" } }]
+  });
+  assert.deepEqual(knownType.warnings, []);
   for (const bad of [
     { ...node, id: "one" },
     { ...node, id: "bad-coord", x: Infinity },
@@ -199,7 +209,11 @@ test("add is deterministic, validates inputs, and supports later connect operati
     assert.throws(() => transformPlan(flows, { rev: "rev", ops: [{ op: "add", node: bad }] }));
   }
   assert.throws(
-    () => transformPlan(flows, { rev: "rev", ops: [{ op: "add", node: { ...node, z: "missing" } }] }),
+    () =>
+      transformPlan(flows, {
+        rev: "rev",
+        ops: [{ op: "add", node: { ...node, z: "missing" }, assumeOrdinary: true }]
+      }),
     /existing tab or subflow owner/
   );
   const crossOwner = [
@@ -211,7 +225,13 @@ test("add is deterministic, validates inputs, and supports later connect operati
     () =>
       transformPlan(crossOwner, {
         rev: "rev",
-        ops: [{ op: "add", node: { ...node, id: "bad-cross-wire", wires: [["remote"]] } }]
+        ops: [
+          {
+            op: "add",
+            node: { ...node, id: "bad-cross-wire", wires: [["remote"]] },
+            assumeOrdinary: true
+          }
+        ]
       }),
     /crosses workspace owners/
   );
