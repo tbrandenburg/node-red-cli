@@ -4,7 +4,7 @@ const js = require("@eslint/js");
 
 module.exports = [
   {
-    ignores: ["node_modules/**", "test/fixtures/**"]
+    ignores: ["node_modules/**", ".worktrees/**", "test/fixtures/**"]
   },
   js.configs.recommended,
   {
@@ -20,7 +20,11 @@ module.exports = [
         Buffer: "readonly",
         setTimeout: "readonly",
         clearTimeout: "readonly",
-        Promise: "readonly"
+        Promise: "readonly",
+        fetch: "readonly",
+        URL: "readonly",
+        AbortController: "readonly",
+        structuredClone: "readonly"
       }
     },
     rules: {

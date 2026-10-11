@@ -14,6 +14,9 @@ const { resolveFlowFile } = require("../src/flow-file");
 const flowInspect = require("../src/flow-inspect");
 const { launchNodeRed } = require("../src/serve");
 const { parseFlowUrl, fetchFlowUrl, displayFlowUrl } = require("../src/flow-url");
+const { createEditClient, DEFAULT_ADMIN_URL } = require("../src/edit-api");
+const { listNodes, getNodeContext } = require("../src/edit-query");
+const { parsePlan, transformPlan } = require("../src/edit-plan");
 
 const HELP_TEXT = [
   "",
@@ -215,6 +218,115 @@ async function inspect(flowFileArg, entryArg, options, command) {
     }
     process.stdout.write(
       options.json ? `${JSON.stringify(result)}\n` : `${flowInspect.formatInspection(result)}\n`
+    );
+  } catch (error) {
+    console.error(`node-red-cli: ${error.message}`);
+    process.exitCode = 1;
+  }
+}
+
+async function editRequest(action, options) {
+  try {
+    return await action(createEditClient({ adminUrl: options.adminUrl }));
+  } catch (error) {
+    console.error(`node-red-cli: ${error.message}`);
+    process.exitCode = 1;
+    return null;
+  }
+}
+
+function editOptions(command) {
+  return command
+    .option("--admin-url <url>", "Node-RED Admin API base URL", DEFAULT_ADMIN_URL)
+    .option("--json", "emit machine-readable JSON");
+}
+
+function printEditResult(value, json, format) {
+  process.stdout.write(`${json ? JSON.stringify(value) : format(value)}\n`);
+}
+
+function summarizePreviewChanges(changes) {
+  const sourceFields = new Set(["func", "initialize", "finalize"]);
+  const summarize = (value, key) => {
+    if (sourceFields.has(key)) return "[source omitted; review the plan file]";
+    if (Array.isArray(value)) return value.map((item) => summarize(item, ""));
+    if (!value || typeof value !== "object") return value;
+    return Object.fromEntries(
+      Object.entries(value).map(([childKey, child]) => [childKey, summarize(child, childKey)])
+    );
+  };
+  return JSON.stringify(summarize(changes, ""), null, 2);
+}
+
+function previewWarnings(changes) {
+  const sourceFields = new Set(["func", "initialize", "finalize"]);
+  const containsSource = (value) => {
+    if (Array.isArray(value)) return value.some(containsSource);
+    if (!value || typeof value !== "object") return false;
+    return Object.entries(value).some(([key, child]) => sourceFields.has(key) || containsSource(child));
+  };
+  return containsSource(changes)
+    ? ["JSON preview contains executable Function source; review it before applying."]
+    : [];
+}
+
+async function editPlanFile(planFile, options, deploy) {
+  try {
+    const plan = parsePlan(fs.readFileSync(planFile, "utf8"));
+    const client = createEditClient({ adminUrl: options.adminUrl });
+    const current = await client.getFlows();
+    if (current.rev !== plan.rev)
+      throw new Error("plan revision is stale; refresh live flows and review the plan");
+    const addOperations = plan.ops.filter((op) => op?.op === "add");
+    if (addOperations.length > 0) {
+      const installedTypes = new Set(await client.getNodeTypes());
+      for (const op of addOperations) {
+        if (typeof op.node?.type === "string" && !installedTypes.has(op.node.type))
+          throw new Error(`node type '${op.node.type}' is not installed in the Node-RED palette`);
+      }
+    }
+    const credentialOps = plan.ops.filter((op) => op?.op === "credential");
+    const credentialSchemas = {};
+    for (const op of credentialOps) {
+      const node = current.flows.find((item) => item?.id === op.id);
+      if (!node) continue;
+      if (!credentialSchemas[node.type] || Object.keys(credentialSchemas[node.type]).length === 0) {
+        const schema = await client.getCredentialSchema(node.type, node.id);
+        credentialSchemas[node.type] = { ...credentialSchemas[node.type], ...schema };
+      }
+    }
+    const transformed = transformPlan(current.flows, plan, { credentialSchemas });
+    if (!deploy) {
+      const result = {
+        rev: current.rev,
+        valid: true,
+        deployed: false,
+        summary: transformed.summary,
+        warnings: previewWarnings(transformed.changes),
+        changes: transformed.changes
+      };
+      printEditResult(
+        result,
+        options.json,
+        (data) => `Preview only — nothing deployed. ${data.summary}\n${summarizePreviewChanges(data.changes)}`
+      );
+      return;
+    }
+    const deployFlows = credentialOps.length
+      ? transformPlan(current.flows, plan, { credentialSchemas, resolveCredentialValues: true }).flows
+      : transformed.flows;
+    const posted = await client.postFlows({ rev: current.rev, flows: deployFlows });
+    const result = {
+      deployed: true,
+      previousRev: current.rev,
+      rev: posted.rev,
+      summary: transformed.summary
+    };
+    printEditResult(
+      result,
+      options.json,
+      (data) =>
+        `Deployed revision ${data.rev} (previous ${data.previousRev}). ${data.summary}. Full deployment restarts all nodes.`
     );
   } catch (error) {
     console.error(`node-red-cli: ${error.message}`);
@@ -483,6 +595,66 @@ program
     "\nWith --flow-json, the first positional is [entry]; it cannot be combined with a flow-file or --flow-dir. --flow-json - consumes stdin as flow JSON.\n"
   )
   .action(inspect);
+
+const editCommand = program
+  .command("edit")
+  .description("inspect, preview, and revision-safely edit a running Node-RED instance");
+editOptions(editCommand);
+editCommand.configureHelp({ showGlobalOptions: true });
+
+const editList = editCommand.command("list").description("list live tabs and workspace nodes");
+editOptions(editList)
+  .option("--tab <id|label>", "filter by tab ID or exact label")
+  .option("--kind <workspace|config>", "list workspace nodes (default) or config nodes")
+  .option("--type <type>", "filter by exact node type")
+  .option("--search <text>", "case-insensitive search in selected non-secret text fields")
+  .option("--limit <n>", "maximum results (default: 50, maximum: 500)");
+editList.action(async (options, command) => {
+  options = command.optsWithGlobals();
+  const fetched = await editRequest((client) => client.getFlows(), options);
+  if (!fetched) return;
+  try {
+    const result = { rev: fetched.rev, ...listNodes(fetched.flows, options) };
+    printEditResult(
+      result,
+      options.json,
+      (data) =>
+        `${data.tabs.map((tab) => `${tab.label} (${tab.id}): ${tab.nodeCount}`).join("\n")}\n${data.nodes.map((node) => `${node.id}\t${node.type}\t${node.name}\t${node.tabLabel}`).join("\n")}\n${data.total} node(s)${data.truncated ? " (truncated)" : ""}`
+    );
+  } catch (error) {
+    console.error(`node-red-cli: ${error.message}`);
+    process.exitCode = 1;
+  }
+});
+
+const editGet = editCommand.command("get <id>").description("get a live node and its ordinary wire context");
+editOptions(editGet);
+editGet.action(async (id, options, command) => {
+  options = command.optsWithGlobals();
+  const fetched = await editRequest((client) => client.getFlows(), options);
+  if (!fetched) return;
+  try {
+    const result = { rev: fetched.rev, ...getNodeContext(fetched.flows, id) };
+    printEditResult(result, options.json, (data) => JSON.stringify(data, null, 2));
+  } catch (error) {
+    console.error(`node-red-cli: ${error.message}`);
+    process.exitCode = 1;
+  }
+});
+
+const editPreview = editCommand
+  .command("preview <plan.json>")
+  .description("preview a revision-bound edit plan without deploying");
+editOptions(editPreview).action((planFile, options, command) =>
+  editPlanFile(planFile, command.optsWithGlobals(), false)
+);
+
+const editApply = editCommand
+  .command("apply <plan.json>")
+  .description("apply a revision-bound edit plan with one full deployment");
+editOptions(editApply).action((planFile, options, command) =>
+  editPlanFile(planFile, command.optsWithGlobals(), true)
+);
 
 program.parseAsync(process.argv).catch((error) => {
   console.error(error.stack || error.message);
