@@ -17,6 +17,7 @@ const { parseFlowUrl, fetchFlowUrl, displayFlowUrl } = require("../src/flow-url"
 const { createEditClient, DEFAULT_ADMIN_URL } = require("../src/edit-api");
 const { listNodes, getNodeContext } = require("../src/edit-query");
 const { parsePlan, transformPlan } = require("../src/edit-plan");
+const { applyWorkingDirectory } = require("../src/working-dir");
 
 const HELP_TEXT = [
   "",
@@ -86,6 +87,10 @@ const HELP_TEXT = [
   "packages into) as the userDir, instead of the default ephemeral tmpdir or",
   "the best-effort /data auto-probe. Ignored outside --docker mode.",
   "Precedence: --user-dir > --docker-user-dir > the /data auto-probe > the ephemeral default.",
+  "",
+  "--cwd <dir> changes the host process working directory before local paths",
+  "and flow execution. Relative values are based on the invoking directory.",
+  "It is incompatible with --docker, which has no host directory mounts.",
   "",
   "The flow-file may be a local path or a direct HTTP(S) URL returning a JSON array.",
   "URLs are fetched on the host (also with --docker); only use trusted sources.",
@@ -526,6 +531,19 @@ async function run(flowFileArg, entryArg, options, command) {
 
 const program = new Command();
 
+program
+  .option("--cwd <dir>", "working directory for local paths and host execution")
+  .hook("preAction", (_thisCommand, actionCommand) => {
+    const cwd = program.getOptionValue("cwd");
+    if (program.getOptionValueSource("cwd") !== "cli") return;
+    if (actionCommand.name() === "run" && actionCommand.optsWithGlobals().docker) {
+      throw new Error(
+        "--cwd cannot be combined with --docker; host project directories are not mounted into the sandbox"
+      );
+    }
+    applyWorkingDirectory(cwd);
+  });
+
 function addRunOptions(command) {
   return command
     .option("--tab <id|label>", "workspace tab id or unique label to scope entry selection")
@@ -577,6 +595,7 @@ program
   .command("serve")
   .description("run a flow file with native Node-RED server/editor")
   .argument("[flow-file]", "local Node-RED flows.json file")
+  .configureHelp({ showGlobalOptions: true })
   .option("--flow-dir <dir>", "directory for a bare flow-file name")
   .option("--user-dir <dir>", "native persistent Node-RED userDir")
   .option("--port <port>", "native Node-RED HTTP port (default: 1880)", parsePort, 1880)
@@ -587,6 +606,7 @@ program
   .description("inspect a Node-RED flow-file without running it")
   .argument("[flow-file]", "local flow JSON file or direct HTTP(S) flow JSON URL")
   .argument("[entry]", "workspace Link In id or unique name")
+  .configureHelp({ showGlobalOptions: true })
   .option("--tab <id|label>", "workspace tab id or unique label")
   .option("--flow-dir <dir>", "directory for a bare flow-file name")
   .option("--flow-json <json|->", "inline flow JSON or '-' to read flow JSON from stdin")
@@ -605,6 +625,7 @@ editOptions(editCommand);
 editCommand.configureHelp({ showGlobalOptions: true });
 
 const editList = editCommand.command("list").description("list live tabs and workspace nodes");
+editList.configureHelp({ showGlobalOptions: true });
 editOptions(editList)
   .option("--tab <id|label>", "filter by tab ID or exact label")
   .option("--kind <workspace|config>", "list workspace nodes (default) or config nodes")
@@ -630,6 +651,7 @@ editList.action(async (options, command) => {
 });
 
 const editGet = editCommand.command("get <id>").description("get a live node and its ordinary wire context");
+editGet.configureHelp({ showGlobalOptions: true });
 editOptions(editGet);
 editGet.action(async (id, options, command) => {
   options = command.optsWithGlobals();
@@ -646,19 +668,21 @@ editGet.action(async (id, options, command) => {
 
 const editPreview = editCommand
   .command("preview <plan.json>")
-  .description("preview a revision-bound edit plan without deploying");
+  .description("preview a revision-bound edit plan without deploying")
+  .configureHelp({ showGlobalOptions: true });
 editOptions(editPreview).action((planFile, options, command) =>
   editPlanFile(planFile, command.optsWithGlobals(), false)
 );
 
 const editApply = editCommand
   .command("apply <plan.json>")
-  .description("apply a revision-bound edit plan with one full deployment");
+  .description("apply a revision-bound edit plan with one full deployment")
+  .configureHelp({ showGlobalOptions: true });
 editOptions(editApply).action((planFile, options, command) =>
   editPlanFile(planFile, command.optsWithGlobals(), true)
 );
 
 program.parseAsync(process.argv).catch((error) => {
-  console.error(error.stack || error.message);
+  console.error(`node-red-cli: ${error.message}`);
   process.exitCode = 1;
 });

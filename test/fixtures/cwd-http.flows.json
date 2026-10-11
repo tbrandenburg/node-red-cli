@@ -1,0 +1,59 @@
+[
+    {
+        "id": "cwd-http-tab",
+        "type": "tab",
+        "label": "Working directory HTTP",
+        "disabled": false,
+        "info": ""
+    },
+    {
+        "id": "cwd-http-in",
+        "type": "http in",
+        "z": "cwd-http-tab",
+        "name": "",
+        "url": "/cwd",
+        "method": "get",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 120,
+        "y": 80,
+        "wires": [
+            [
+                "cwd-http-exec"
+            ]
+        ]
+    },
+    {
+        "id": "cwd-http-exec",
+        "type": "exec",
+        "z": "cwd-http-tab",
+        "command": "node -p \"process.cwd()\"",
+        "addpay": false,
+        "append": "",
+        "useSpawn": "false",
+        "timer": "",
+        "winHide": false,
+        "oldrc": false,
+        "name": "cwd manual E2E updated",
+        "x": 340,
+        "y": 80,
+        "wires": [
+            [
+                "cwd-http-response"
+            ],
+            [],
+            []
+        ]
+    },
+    {
+        "id": "cwd-http-response",
+        "type": "http response",
+        "z": "cwd-http-tab",
+        "name": "",
+        "statusCode": "",
+        "headers": {},
+        "x": 560,
+        "y": 80,
+        "wires": []
+    }
+]

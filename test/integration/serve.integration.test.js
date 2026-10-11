@@ -10,6 +10,7 @@ const test = require("node:test");
 const root = path.resolve(__dirname, "../..");
 const cli = path.join(root, "bin/node-red-cli.js");
 const fixture = path.join(root, "test/fixtures/serve-http.flows.json");
+const cwdFixture = path.join(root, "test/fixtures/cwd-http.flows.json");
 
 function project(t) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "node-red-cli-serve-"));
@@ -99,4 +100,73 @@ test("serve launches a native HTTP In flow and shuts its child down on SIGTERM",
   assert.equal(result.code, 0);
   assert.ok(fs.existsSync(userDir), "native userDir persists after shutdown");
   await assert.rejects(globalThis.fetch(`http://127.0.0.1:${address[1]}/hello`));
+});
+
+test("serve resolves the flow and runs native child processes from global cwd", async (t) => {
+  const { directory, home } = project(t);
+  const caller = path.join(directory, "caller");
+  const selected = path.join(directory, "project");
+  const flowDir = path.join(directory, "flow source");
+  const userDir = "native-runtime";
+  fs.mkdirSync(caller);
+  fs.mkdirSync(selected);
+  fs.mkdirSync(flowDir);
+  fs.copyFileSync(cwdFixture, path.join(flowDir, "server.json"));
+  const expectedCwd = fs.realpathSync(selected);
+  const relativeCwd = path.relative(caller, selected);
+  const child = spawn(
+    process.execPath,
+    [
+      cli,
+      "serve",
+      "server.json",
+      "--flow-dir",
+      path.relative(selected, flowDir),
+      "--cwd",
+      relativeCwd,
+      "--port",
+      "0",
+      "--user-dir",
+      userDir
+    ],
+    {
+      cwd: caller,
+      env: { ...process.env, HOME: home },
+      stdio: ["ignore", "pipe", "pipe"]
+    }
+  );
+  let output = "";
+  child.stdout.setEncoding("utf8").on("data", (chunk) => (output += chunk));
+  child.stderr.setEncoding("utf8").on("data", (chunk) => (output += chunk));
+  const closed = new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", (code, signal) => resolve({ code, signal }));
+  });
+  t.after(() => {
+    if (child.exitCode === null && child.signalCode === null) child.kill("SIGTERM");
+  });
+
+  let response;
+  const deadline = Date.now() + 20000;
+  while (Date.now() < deadline) {
+    const address = output.match(/127\.0\.0\.1:(\d+)/);
+    if (address) {
+      try {
+        response = await fetch(`http://127.0.0.1:${address[1]}/cwd`);
+        if (response.ok) break;
+      } catch {
+        response = undefined;
+      }
+    }
+    if (child.exitCode !== null) break;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  assert.ok(response?.ok, `native cwd endpoint did not become ready: ${output}`);
+  assert.equal((await response.text()).trim(), expectedCwd);
+  assert.ok(fs.existsSync(path.join(selected, userDir)));
+  assert.equal(fs.existsSync(path.join(caller, userDir)), false);
+  const address = output.match(/127\.0\.0\.1:(\d+)/);
+  child.kill("SIGTERM");
+  assert.deepEqual(await closed, { code: 0, signal: null });
+  await assert.rejects(fetch(`http://127.0.0.1:${address[1]}/cwd`));
 });

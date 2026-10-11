@@ -1,0 +1,46 @@
+[
+  {
+    "id": "cwd-tab",
+    "type": "tab",
+    "label": "Working directory",
+    "disabled": false,
+    "info": ""
+  },
+  {
+    "id": "cwd-entry",
+    "type": "link in",
+    "z": "cwd-tab",
+    "name": "cwd",
+    "links": [],
+    "x": 120,
+    "y": 80,
+    "wires": [["cwd-exec"]]
+  },
+  {
+    "id": "cwd-exec",
+    "type": "exec",
+    "z": "cwd-tab",
+    "command": "node -p \"process.cwd()\"",
+    "addpay": false,
+    "append": "",
+    "useSpawn": "false",
+    "timer": "",
+    "winHide": false,
+    "oldrc": false,
+    "name": "Report subprocess cwd",
+    "x": 340,
+    "y": 80,
+    "wires": [["cwd-return"], [], []]
+  },
+  {
+    "id": "cwd-return",
+    "type": "link out",
+    "z": "cwd-tab",
+    "name": "return",
+    "mode": "return",
+    "links": [],
+    "x": 560,
+    "y": 80,
+    "wires": []
+  }
+]

@@ -12,6 +12,7 @@ const test = require("node:test");
 const root = path.resolve(__dirname, "../..");
 const cli = path.join(root, "bin/node-red-cli.js");
 const fixture = path.join(root, "test/fixtures/single-link-in.flows.json");
+const cwdFixture = path.join(root, "test/fixtures/cwd-exec.flows.json");
 
 function createProject(t) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "node-red-cli-command-"));
@@ -62,6 +63,7 @@ test("run is mandatory and help exposes only the canonical run options", (t) => 
   const rootHelp = invoke(["--help"], project);
   assert.equal(rootHelp.status, 0, rootHelp.stderr);
   assert.match(rootHelp.stdout, /run/);
+  assert.match(rootHelp.stdout, /--cwd <dir>/);
   assert.doesNotMatch(rootHelp.stdout, /flow-file execution/);
   const legacy = invoke([fixture, "calculate", "--set", "x=4"], project);
   assert.notEqual(legacy.status, 0);
@@ -70,8 +72,119 @@ test("run is mandatory and help exposes only the canonical run options", (t) => 
   for (const flag of ["--tab", "--flow-dir", "--flow-json", "--user-dir", "--docker-user-dir", "--output"]) {
     assert.match(help.stdout, new RegExp(flag));
   }
+  assert.match(help.stdout, /--cwd <dir>/);
   for (const flag of ["--flow ", "--flowDir", "--flowJson", "--userDir", "--docker-userdir", "--format"]) {
     assert.doesNotMatch(help.stdout, new RegExp(flag));
+  }
+});
+
+test("global cwd works around commands, controls host runtime, and validates before actions", (t) => {
+  const project = createProject(t);
+  const caller = path.join(project.directory, "caller");
+  const selected = path.join(project.directory, "project");
+  fs.mkdirSync(caller);
+  fs.mkdirSync(selected);
+  const isolated = { ...project, directory: caller };
+  const relativeCwd = path.relative(caller, selected);
+  const expectedCwd = fs.realpathSync(selected);
+
+  const afterRun = invoke(["run", cwdFixture, "cwd", "--cwd", relativeCwd], isolated);
+  assert.equal(afterRun.status, 0, afterRun.stderr);
+  assert.equal(afterRun.stdout.trim(), expectedCwd);
+
+  const inlineFlow = fs.readFileSync(cwdFixture, "utf8");
+  for (const [args, input] of [
+    [["run", "cwd", "--flow-json", inlineFlow, "--cwd", relativeCwd], ""],
+    [["run", "cwd", "--flow-json", "-", "--cwd", relativeCwd], inlineFlow]
+  ]) {
+    const result = invoke(args, isolated, input);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout.trim(), expectedCwd);
+  }
+
+  const beforeRun = invoke(["--cwd", relativeCwd, "run", fixture, "--set", "x=4", "--set", "y=5"], isolated);
+  assert.equal(beforeRun.status, 0, beforeRun.stderr);
+  assert.equal(beforeRun.stdout.trim(), "9");
+
+  const flowDir = path.join(project.directory, "flow source");
+  fs.mkdirSync(flowDir);
+  fs.copyFileSync(fixture, path.join(flowDir, "plan.json"));
+  const fromFlowDir = invoke(
+    [
+      "run",
+      "plan.json",
+      "--flow-dir",
+      path.relative(selected, flowDir),
+      "--cwd",
+      selected,
+      "--set",
+      "x=4",
+      "--set",
+      "y=5"
+    ],
+    isolated
+  );
+  assert.equal(fromFlowDir.status, 0, fromFlowDir.stderr);
+  assert.equal(fromFlowDir.stdout.trim(), "9");
+  const inspection = invoke(
+    ["inspect", "plan.json", "--flow-dir", path.relative(selected, flowDir), "--cwd", selected, "--json"],
+    isolated
+  );
+  assert.equal(inspection.status, 0, inspection.stderr);
+  assert.equal(JSON.parse(inspection.stdout).source.path, path.join(flowDir, "plan.json"));
+  fs.copyFileSync(fixture, path.join(selected, "plan.json"));
+  const explicitInspection = invoke(
+    ["inspect", "./plan.json", "--flow-dir", flowDir, "--cwd", selected, "--json"],
+    isolated
+  );
+  assert.equal(explicitInspection.status, 0, explicitInspection.stderr);
+  assert.equal(JSON.parse(explicitInspection.stdout).source.path, path.join(selected, "plan.json"));
+
+  const explicitUserDir = invoke(
+    ["run", fixture, "--cwd", selected, "--user-dir", "runtime", "--set", "x=4", "--set", "y=5"],
+    isolated
+  );
+  assert.equal(explicitUserDir.status, 0, explicitUserDir.stderr);
+  assert.ok(fs.existsSync(path.join(selected, "runtime", ".config.runtime.json")));
+  assert.equal(fs.existsSync(path.join(caller, "runtime")), false);
+  const cacheRun = invoke(
+    ["run", fixture, "--cwd", selected, "--user-dir", "--set", "x=4", "--set", "y=5"],
+    isolated
+  );
+  assert.equal(cacheRun.status, 0, cacheRun.stderr);
+  assert.ok(fs.existsSync(path.join(project.home, ".cache", "node-red-cli")));
+  const missingCwd = invoke(["run", cwdFixture, "cwd", "--cwd", path.join(selected, "missing")], isolated);
+  assert.equal(missingCwd.status, 1);
+  assert.match(missingCwd.stderr, /working directory not found:/);
+  const fileCwd = invoke(["inspect", fixture, "--cwd", fixture, "--json"], isolated);
+  assert.equal(fileCwd.status, 1);
+  assert.match(fileCwd.stderr, /not a working directory:/);
+
+  for (const args of [
+    ["run", "missing.json", "--docker", "--cwd", path.join(selected, "missing")],
+    ["run", "missing.json", "--docker=mock:sandbox", "--cwd", selected],
+    ["--cwd", selected, "run", "missing.json", "--docker"]
+  ]) {
+    const rejected = invoke(args, isolated);
+    assert.equal(rejected.status, 1, args.join(" "));
+    assert.match(rejected.stderr, /--cwd cannot be combined with --docker/);
+    assert.doesNotMatch(rejected.stderr, /flow file not found/);
+  }
+
+  for (const args of [["--help"], ["--version"], ["run", "--help"], ["edit", "preview", "--help"]]) {
+    const result = invoke(args, isolated);
+    assert.equal(result.status, 0, result.stderr);
+  }
+  for (const args of [
+    ["serve", "--help"],
+    ["inspect", "--help"],
+    ["edit", "list", "--help"],
+    ["edit", "get", "--help"],
+    ["edit", "apply", "--help"]
+  ]) {
+    const help = invoke(args, isolated);
+    assert.equal(help.status, 0, help.stderr);
+    assert.match(help.stdout, /--cwd <dir>/, args.join(" "));
   }
 });
 
@@ -267,7 +380,14 @@ test("colon-containing local flow filenames are not reinterpreted as HTTP URLs",
 test("run and inspect load remote flow arrays in memory from direct URLs", async (t) => {
   const project = createProject(t);
   const flow = fs.readFileSync(fixture);
+  const cwdFlow = fs.readFileSync(cwdFixture);
+  const requests = [];
   const server = http.createServer((request, response) => {
+    requests.push(request.url);
+    if (request.url.startsWith("/cwd")) {
+      response.writeHead(200, { "Content-Type": "application/json" }).end(cwdFlow);
+      return;
+    }
     if (request.url.startsWith("/redirect")) {
       response.writeHead(302, { Location: "/flows.json" }).end();
       return;
@@ -286,6 +406,12 @@ test("run and inspect load remote flow arrays in memory from direct URLs", async
   t.after(() => new Promise((resolve) => server.close(resolve)));
   const base = `http://127.0.0.1:${server.address().port}`;
 
+  const selected = path.join(project.directory, "url-project");
+  fs.mkdirSync(selected);
+  const cwdUrlRun = await invokeAsync(["run", `${base}/cwd.json`, "cwd", "--cwd", selected], project);
+  assert.equal(cwdUrlRun.status, 0, cwdUrlRun.stderr);
+  assert.equal(cwdUrlRun.stdout.trim(), fs.realpathSync(selected));
+
   const inventory = await invokeAsync(
     ["inspect", `${base}/flows.json?token=secret`, "calculate", "--depth", "2", "--json"],
     project
@@ -296,6 +422,15 @@ test("run and inspect load remote flow arrays in memory from direct URLs", async
   assert.ok(parsed.graph.nodes.some((node) => node.sourceId === "add"));
   assert.ok(!inventory.stdout.includes("secret"));
   assert.deepEqual(fs.readdirSync(project.home), []);
+
+  const requestCount = requests.length;
+  const rejectedDockerUrl = await invokeAsync(
+    ["run", `${base}/cwd.json`, "cwd", "--docker", "--cwd", selected],
+    project
+  );
+  assert.equal(rejectedDockerUrl.status, 1);
+  assert.match(rejectedDockerUrl.stderr, /--cwd cannot be combined with --docker/);
+  assert.equal(requests.length, requestCount, "Docker conflict must fail before fetching flow URLs");
 
   assert.equal(
     (
