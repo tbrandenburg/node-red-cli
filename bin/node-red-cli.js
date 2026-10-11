@@ -306,6 +306,7 @@ async function editPlanFile(planFile, options, deploy) {
         rev: current.rev,
         valid: true,
         deployed: false,
+        changeCounts: transformed.changeCounts,
         summary: transformed.summary,
         warnings: [...transformed.warnings, ...previewWarnings(transformed.changes)],
         changes: transformed.changes

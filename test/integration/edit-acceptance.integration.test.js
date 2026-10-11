@@ -302,8 +302,19 @@ test("edit acceptance on a native serve process: queries, preview, deploy, stale
     project
   );
   assert.equal(preview.status, 0, preview.stderr);
-  assert.equal(JSON.parse(preview.stdout).deployed, false);
+  const previewResult = JSON.parse(preview.stdout);
+  assert.equal(previewResult.deployed, false);
+  assert.deepEqual(previewResult.changeCounts, { nodes: 3, flowMetadata: 1 });
+  assert.equal(previewResult.summary, "3 nodes changed; flow order changed");
   assert.deepEqual((await admin(port)).body, seededFlows, "preview must not deploy");
+
+  const humanPreview = invoke(
+    ["edit", "preview", planFile, "--admin-url", `http://127.0.0.1:${port}`],
+    project
+  );
+  assert.equal(humanPreview.status, 0, humanPreview.stderr);
+  assert.match(humanPreview.stdout, /3 nodes changed/);
+  assert.deepEqual((await admin(port)).body, seededFlows, "human preview must not deploy");
 
   const applied = invoke(
     ["edit", "apply", planFile, "--admin-url", `http://127.0.0.1:${port}`, "--json"],
@@ -312,6 +323,7 @@ test("edit acceptance on a native serve process: queries, preview, deploy, stale
   assert.equal(applied.status, 0, applied.stderr);
   const appliedResult = JSON.parse(applied.stdout);
   assert.equal(appliedResult.deployed, true);
+  assert.equal(appliedResult.summary, "3 nodes changed; flow order changed");
   assert.notEqual(appliedResult.rev, base.body.rev);
   const deployed = await admin(port);
   assert.equal(deployed.body.flows.find((node) => node.id === "serve-tab").label, "Serve HTTP");
@@ -798,8 +810,42 @@ test("structural edit operations preserve native Link and subflow behavior acros
     project
   );
   assert.equal(preview.status, 0, preview.stderr);
-  assert.equal(JSON.parse(preview.stdout).deployed, false);
+  const previewResult = JSON.parse(preview.stdout);
+  assert.equal(previewResult.deployed, false);
+  assert.deepEqual(previewResult.changeCounts, {
+    nodes: previewResult.changes.filter((change) => change.type !== "flow").length,
+    flowMetadata: previewResult.changes.filter((change) => change.type === "flow").length
+  });
+  assert.match(previewResult.summary, /flow order changed/);
   assert.equal((await admin(port)).body.rev, initial.body.rev, "preview must not deploy structural changes");
+
+  const reorderFile = writePlan(project, "reorder-preview.json", {
+    rev: initial.body.rev,
+    ops: [
+      {
+        op: "tab",
+        action: "reorder",
+        order: ["second", "first", "return-tab", "nested-tab", "timeout-tab", "duplicate-tab"]
+      }
+    ]
+  });
+  const reorderPreview = invoke(
+    ["edit", "preview", reorderFile, "--admin-url", `http://127.0.0.1:${port}`, "--json"],
+    project
+  );
+  assert.equal(reorderPreview.status, 0, reorderPreview.stderr);
+  const reorderResult = JSON.parse(reorderPreview.stdout);
+  assert.deepEqual(reorderResult.changeCounts, { nodes: 0, flowMetadata: 1 });
+  assert.deepEqual(reorderResult.changes.at(-1), { id: "flow-order", type: "flow", action: "reordered" });
+  assert.equal(reorderResult.summary, "0 nodes changed; flow order changed");
+  const humanReorderPreview = invoke(
+    ["edit", "preview", reorderFile, "--admin-url", `http://127.0.0.1:${port}`],
+    project
+  );
+  assert.equal(humanReorderPreview.status, 0, humanReorderPreview.stderr);
+  assert.match(humanReorderPreview.stdout, /0 nodes changed; flow order changed/);
+  assert.doesNotMatch(humanReorderPreview.stdout, /1 node changed/);
+  assert.equal((await admin(port)).body.rev, initial.body.rev, "reorder preview must not deploy");
 
   const applied = invoke(
     ["edit", "apply", previewFile, "--admin-url", `http://127.0.0.1:${port}`, "--json"],
@@ -903,4 +949,65 @@ test("structural edit operations preserve native Link and subflow behavior acros
   );
   assert.equal(finalRun.status, 0, finalRun.stderr);
   assert.equal(finalRun.stdout.trim(), "nested-complete");
+});
+
+test("Link node names preview and deploy without changing relationships", async (t) => {
+  const project = temporaryNativeProject(t);
+  let port = await freePort();
+  const server = launch(project, port);
+  t.after(async () => stop(server));
+  const initial = await waitForAdmin(server, port);
+  const selectedIds = ["cross", "internal", "native-call"];
+  const names = new Map(selectedIds.map((id) => [id, `Renamed ${id}`]));
+  const plan = {
+    rev: initial.rev,
+    ops: selectedIds.map((id) => ({ op: "set", id, fields: { name: names.get(id) } }))
+  };
+  const planFile = writePlan(project, "rename-links.json", plan);
+  const preview = invoke(
+    ["edit", "preview", planFile, "--admin-url", `http://127.0.0.1:${port}`, "--json"],
+    project
+  );
+  assert.equal(preview.status, 0, preview.stderr);
+  assert.equal(JSON.parse(preview.stdout).deployed, false);
+  assert.deepEqual(await admin(port).then(({ body }) => body), initial, "preview must not deploy");
+
+  const before = structuredClone(initial.flows);
+  const applied = invoke(
+    ["edit", "apply", planFile, "--admin-url", `http://127.0.0.1:${port}`, "--json"],
+    project
+  );
+  assert.equal(applied.status, 0, applied.stderr);
+  const deployed = await admin(port);
+  assert.equal(deployed.response.status, 200);
+  assert.deepEqual(
+    deployed.body.flows.map(({ id }) => id),
+    before.map(({ id }) => id)
+  );
+  for (const oldNode of before) {
+    const updated = deployed.body.flows.find(({ id }) => id === oldNode.id);
+    const expected = names.has(oldNode.id) ? { ...oldNode, name: names.get(oldNode.id) } : oldNode;
+    assert.deepEqual(updated, expected, `only the name of ${oldNode.id} may change`);
+  }
+
+  for (const fields of [{ name: "bad", links: [] }, { name: 42 }]) {
+    const invalid = writePlan(project, "invalid-link-rename.json", {
+      rev: deployed.body.rev,
+      ops: [{ op: "set", id: "cross", fields }]
+    });
+    const rejected = invoke(
+      ["edit", "preview", invalid, "--admin-url", `http://127.0.0.1:${port}`, "--json"],
+      project
+    );
+    assert.notEqual(rejected.status, 0);
+    assert.equal((await admin(port)).body.rev, deployed.body.rev, "rejected preview must not deploy");
+  }
+
+  await stop(server);
+  port = await freePort();
+  const restarted = launch(project, port);
+  t.after(async () => stop(restarted));
+  const persisted = await waitForAdmin(restarted, port);
+  for (const id of selectedIds)
+    assert.equal(persisted.flows.find((node) => node.id === id).name, names.get(id));
 });

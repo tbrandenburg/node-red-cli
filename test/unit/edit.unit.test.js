@@ -174,6 +174,89 @@ test("plan parser and transformer are strict, pure, ordered and protect structur
   assert.doesNotMatch(JSON.stringify(safeDiff.changes), /nested-secret-sentinel/);
 });
 
+test("set renames Link nodes by exact ID without changing relationships", () => {
+  const graph = [
+    { id: "tab", type: "tab", label: "Main" },
+    {
+      id: "entry",
+      type: "link in",
+      z: "tab",
+      x: 1,
+      y: 2,
+      name: "Entry",
+      links: ["out"],
+      wires: [["worker"]]
+    },
+    { id: "worker", type: "function", z: "tab", x: 3, y: 4, wires: [[]] },
+    { id: "out", type: "link out", z: "tab", x: 5, y: 6, mode: "link", links: ["entry"], wires: [] },
+    { id: "return", type: "link out", z: "tab", x: 7, y: 8, mode: "return", links: [], wires: [] },
+    { id: "call", type: "link call", z: "tab", x: 9, y: 10, mode: "static", links: ["entry"], wires: [[]] },
+    { id: "dynamic", type: "link call", z: "tab", x: 11, y: 12, mode: "dynamic", links: [], wires: [[]] }
+  ];
+  const original = structuredClone(graph);
+  const ops = [
+    ["entry", "Entry renamed"],
+    ["out", "Out renamed"],
+    ["return", "Return renamed"],
+    ["call", "Call renamed"],
+    ["dynamic", "Dynamic renamed"]
+  ].map(([id, name]) => ({ op: "set", id, fields: { name } }));
+  const result = transformPlan(graph, { rev: "rev", ops });
+  assert.deepEqual(graph, original);
+  assert.deepEqual(
+    result.changes.map(({ id, fields }) => [id, Object.keys(fields)]),
+    [
+      ["entry", ["name"]],
+      ["out", ["name"]],
+      ["return", ["name"]],
+      ["call", ["name"]],
+      ["dynamic", ["name"]]
+    ]
+  );
+  for (const node of original.filter(({ type }) => type.startsWith("link "))) {
+    const renamed = result.flows.find(({ id }) => id === node.id);
+    assert.deepEqual({ ...renamed, name: undefined }, { ...node, name: undefined });
+  }
+  assert.deepEqual(
+    result.flows.map(({ id }) => id),
+    original.map(({ id }) => id)
+  );
+
+  const cleared = transformPlan(graph, {
+    rev: "rev",
+    ops: [{ op: "set", id: "entry", fields: { name: "" } }]
+  });
+  assert.equal(cleared.flows.find(({ id }) => id === "entry").name, "");
+  assert.throws(
+    () => transformPlan(graph, { rev: "rev", ops: [{ op: "set", id: "entry", fields: { name: "Entry" } }] }),
+    /does not change/
+  );
+
+  for (const fields of [
+    { links: [] },
+    { wires: [] },
+    { mode: "return" },
+    { linkType: "dynamic" },
+    { id: "other" },
+    { z: "other" },
+    { x: 0 },
+    { unknown: true },
+    { name: "Entry", mode: "return" },
+    { name: null },
+    { name: [] },
+    { name: 1 },
+    { name: {} }
+  ])
+    assert.throws(
+      () => transformPlan(graph, { rev: "rev", ops: [{ op: "set", id: "entry", fields }] }),
+      /Link node name|Link nodes may change only/
+    );
+  assert.throws(
+    () => transformPlan(graph, { rev: "rev", ops: [{ op: "set", id: "missing", fields: { name: "x" } }] }),
+    /was not found/
+  );
+});
+
 test("add is deterministic, validates inputs, and supports later connect operations", () => {
   const node = { id: "debug-new", type: "debug", z: "tab-a", x: 10, y: 20, wires: [] };
   const original = structuredClone(flows);
@@ -349,7 +432,7 @@ test("delete cleans owned wires and group membership but refuses structural or u
 test("tab reorder moves tab slots only and tab deletion refuses owned content", () => {
   const graph = [
     { id: "a", type: "tab" },
-    { id: "n", type: "inject", z: "a", wires: [[]] },
+    { id: "n", type: "inject", z: "a", x: 10, y: 20, wires: [[]] },
     { id: "b", type: "tab" }
   ];
   const reordered = transformPlan(graph, {
@@ -360,6 +443,25 @@ test("tab reorder moves tab slots only and tab deletion refuses owned content", 
     reordered.flows.map((item) => item.id),
     ["b", "n", "a"]
   );
+  assert.deepEqual(reordered.changeCounts, { nodes: 0, flowMetadata: 1 });
+  assert.equal(reordered.summary, "0 nodes changed; flow order changed");
+  assert.deepEqual(reordered.changes, [{ id: "flow-order", type: "flow", action: "reordered" }]);
+  const nodeAndOrder = transformPlan(graph, {
+    rev: "r",
+    ops: [
+      { op: "set", id: "n", fields: { name: "Updated" } },
+      { op: "tab", action: "reorder", order: ["b", "a"] }
+    ]
+  });
+  assert.deepEqual(nodeAndOrder.changeCounts, { nodes: 1, flowMetadata: 1 });
+  assert.equal(nodeAndOrder.summary, "1 node changed; flow order changed");
+  assert.deepEqual(nodeAndOrder.changes.at(-1), { id: "flow-order", type: "flow", action: "reordered" });
+  const nodeOnly = transformPlan(graph, {
+    rev: "r",
+    ops: [{ op: "set", id: "n", fields: { name: "Updated" } }]
+  });
+  assert.deepEqual(nodeOnly.changeCounts, { nodes: 1, flowMetadata: 0 });
+  assert.equal(nodeOnly.summary, "1 node changed");
   assert.throws(
     () => transformPlan(graph, { rev: "r", ops: [{ op: "tab", action: "delete", id: "a" }] }),
     /nonempty/

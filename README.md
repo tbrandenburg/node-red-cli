@@ -135,9 +135,72 @@ node-red-cli edit preview plan.json --json
 node-red-cli edit apply plan.json --json
 ```
 
+#### Serve → edit → run with one user directory
+
+`serve` uses Node-RED's normal persistent user directory by default, while
+`run` uses a fresh temporary directory unless `--user-dir` is supplied. When a
+flow depends on stored credentials, installed nodes, settings, or other
+user-directory state, use the same explicit directory for both commands. This
+is not needed for every flow, and the defaults do not need to change.
+
+From a checkout after `make install`, prepare a disposable copy of the fixture;
+do not edit the tracked fixture in place:
+
+```bash
+mkdir -p ./.roundtrip-demo/user
+cp test/fixtures/flows.json ./.roundtrip-demo/flows.json
+```
+
+In Terminal A, start the server and wait until Node-RED reports that it is
+running:
+
+```bash
+node bin/node-red-cli.js serve ./.roundtrip-demo/flows.json --user-dir ./.roundtrip-demo/user --port 1880
+```
+
+In Terminal B, read the current revision and create a plan to rename the
+fixture's `add` node. `edit` connects to `http://127.0.0.1:1880` by default;
+it has no `--user-dir` option because it operates on the running server's
+state. If the server uses another port or Admin API path, pass its matching
+`--admin-url` to each `edit` command below.
+
+```bash
+node bin/node-red-cli.js edit list --json | node -e 'let input = ""; process.stdin.on("data", chunk => input += chunk); process.stdin.on("end", () => { const { rev } = JSON.parse(input); process.stdout.write(JSON.stringify({ rev, ops: [{ op: "set", id: "add", fields: { name: "Add two numbers" } }] }, null, 2) + "\n"); });' > ./.roundtrip-demo/plan.json
+node bin/node-red-cli.js edit preview ./.roundtrip-demo/plan.json --json
+node bin/node-red-cli.js edit get add --json
+node bin/node-red-cli.js edit apply ./.roundtrip-demo/plan.json --json
+node bin/node-red-cli.js edit get add --json
+```
+
+Preview should succeed with `"deployed": false`; the first `get` should still
+show the original name, and the final `get` should show `Add two numbers`.
+After preview/apply, stop Terminal A with Ctrl-C before running the flow as a
+standalone invocation in Terminal B:
+
+```bash
+node bin/node-red-cli.js run ./.roundtrip-demo/flows.json calculate --user-dir ./.roundtrip-demo/user --set x=4 --set y=5 < /dev/null
+```
+
+The result is `9`. Stop both processes before removing the disposable demo:
+
+```bash
+rm -rf ./.roundtrip-demo
+```
+
+Node-RED's user directory holds runtime data such as settings, credentials, and
+installed nodes. Using different directories can therefore produce
+configuration or credential warnings, or leave a required node package
+unavailable; an actual missing package or invalid credential still needs to be
+resolved. Sharing the directory for this sequential example keeps both
+runtimes aligned where the flow needs that state.
+
 Plans use the opaque revision returned by list/get and an ordered operation
 array. Operations are transformed sequentially on a deep copy. `set` changes
-non-structural fields; `add` requires an explicit ID, ordinary node type (the
+non-structural fields on ordinary nodes. For an existing Link In, Link Out, or
+Link Call, `set` accepts only `{ "name": "..." }` by exact ID; an empty string
+clears the display name. No Link identity, mode, connection, wire, or other
+property can be changed this way. Use `link connect`/`disconnect` for structural
+Link relationship edits. `add` requires an explicit ID, ordinary node type (the
 caller must ensure it is installed), tab ID, coordinates and wires. The CLI
 checks installed palette types via `GET /nodes` and refuses a type already
 represented as a config node in the current flow; Node-RED's Admin API does not
@@ -223,6 +286,10 @@ identity.
 `preview` performs a fresh v2 GET and reports a redacted diff without POSTing.
 Human-readable previews omit Function source bodies and point reviewers to the
 plan file; JSON previews include source changes with an explicit warning.
+JSON previews add `changeCounts: { "nodes": 1, "flowMetadata": 1 }`: `nodes`
+counts changed Node-RED flow objects (including tabs, groups and config
+objects), while `flowMetadata` counts synthetic flow-level changes such as
+tab order. Human-readable summaries report these separately.
 `apply` repeats that validation against a fresh GET and makes at most one
 revision-checked `POST /flows` v2 request. It never forces or retries a deploy;
 a stale plan or HTTP 409 must be reviewed and regenerated. A successful apply
